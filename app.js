@@ -77,9 +77,14 @@ const isAdmin = (req, res, next) => {
   next();
 };
 
+// Async Error Handler Wrapper to prevent 502 crashes
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 // --- Auth Routes ---
 
-api.post('/auth/register', async (req, res) => {
+api.post('/auth/register', asyncHandler(async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
@@ -100,9 +105,9 @@ api.post('/auth/register', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
+}));
 
-api.post('/auth/login', async (req, res) => {
+api.post('/auth/login', asyncHandler(async (req, res) => {
   const { username, password } = req.body;
   await db.read();
   const user = db.data.users.find(u => u.username === username);
@@ -117,7 +122,7 @@ api.post('/auth/login', async (req, res) => {
     { expiresIn: '24h' }
   );
   res.json({ token, userId: user.id });
-});
+}));
 
 // --- File Routes ---
 
@@ -144,7 +149,7 @@ const upload = multer({
   limits: { fileSize: Number(MAX_UPLOAD_SIZE) }
 });
 
-api.post('/upload', authenticateToken, upload.single('file'), async (req, res) => {
+api.post('/upload', authenticateToken, upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const parentId = req.body.parentId === 'null' || req.body.parentId === '' ? null : req.body.parentId;
@@ -222,15 +227,16 @@ api.post('/upload', authenticateToken, upload.single('file'), async (req, res) =
   await db.write();
 
   res.json({ status: 'success', file: fileData });
-});
+}));
 
-api.get('/files', authenticateToken, async (req, res) => {
+api.get('/files', authenticateToken, asyncHandler(async (req, res) => {
   await db.read();
+  db.data ||= { files: [], shares: [], users: [], folders: [] };
   const files = db.data.files.filter(f => f.ownerId === req.user.id);
   res.json({ files });
-});
+}));
 
-api.patch('/files/:id', authenticateToken, async (req, res) => {
+api.patch('/files/:id', authenticateToken, asyncHandler(async (req, res) => {
   const { name, parentId } = req.body;
   await db.read();
   const file = db.data.files.find(f => f.id === req.params.id && f.ownerId === req.user.id);
@@ -243,16 +249,17 @@ api.patch('/files/:id', authenticateToken, async (req, res) => {
   file.updatedAt = new Date().toISOString();
   await db.write();
   res.json({ status: 'success', file });
-});
+}));
 
 // Folder Routes
-api.get('/folders', authenticateToken, async (req, res) => {
+api.get('/folders', authenticateToken, asyncHandler(async (req, res) => {
   await db.read();
+  db.data ||= { files: [], shares: [], users: [], folders: [] };
   const folders = db.data.folders.filter(f => f.ownerId === req.user.id);
   res.json({ folders });
-});
+}));
 
-api.post('/folders', authenticateToken, async (req, res) => {
+api.post('/folders', authenticateToken, asyncHandler(async (req, res) => {
   const { name, parentId } = req.body;
   if (!name) return res.status(400).json({ error: 'Folder name required' });
 
@@ -267,9 +274,9 @@ api.post('/folders', authenticateToken, async (req, res) => {
   db.data.folders.push(folder);
   await db.write();
   res.json({ status: 'success', folder });
-});
+}));
 
-api.delete('/folders/:id', authenticateToken, async (req, res) => {
+api.delete('/folders/:id', authenticateToken, asyncHandler(async (req, res) => {
   await db.read();
   const index = db.data.folders.findIndex(f => f.id === req.params.id && f.ownerId === req.user.id);
   if (index === -1) return res.status(404).json({ error: 'Folder not found' });
@@ -287,10 +294,10 @@ api.delete('/folders/:id', authenticateToken, async (req, res) => {
   db.data.folders.splice(index, 1);
   await db.write();
   res.json({ status: 'success' });
-});
+}));
 
 // Admin Routes
-api.get('/users', authenticateToken, isAdmin, async (req, res) => {
+api.get('/users', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   await db.read();
   const users = db.data.users.map(u => ({ 
     id: u.id, 
@@ -299,9 +306,9 @@ api.get('/users', authenticateToken, isAdmin, async (req, res) => {
     usedSpace: u.usedSpace || 0
   }));
   res.json({ users });
-});
+}));
 
-api.post('/users', authenticateToken, isAdmin, async (req, res) => {
+api.post('/users', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   const { username, password, quota } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
 
@@ -324,9 +331,9 @@ api.post('/users', authenticateToken, isAdmin, async (req, res) => {
   await initUserStorage(user.id);
 
   res.json({ status: 'success', user: { id: user.id, username: user.username } });
-});
+}));
 
-api.patch('/users/:id/password', authenticateToken, isAdmin, async (req, res) => {
+api.patch('/users/:id/password', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required' });
 
@@ -337,9 +344,9 @@ api.patch('/users/:id/password', authenticateToken, isAdmin, async (req, res) =>
   user.password = await bcrypt.hash(password, 10);
   await db.write();
   res.json({ status: 'success' });
-});
+}));
 
-api.patch('/users/:id/quota', authenticateToken, isAdmin, async (req, res) => {
+api.patch('/users/:id/quota', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   const { quota } = req.body; // Expecting bytes
   await db.read();
   const user = db.data.users.find(u => u.id === req.params.id);
@@ -348,9 +355,9 @@ api.patch('/users/:id/quota', authenticateToken, isAdmin, async (req, res) => {
   user.quota = parseInt(quota);
   await db.write();
   res.json({ status: 'success', quota: user.quota });
-});
+}));
 
-api.delete('/users/:id', authenticateToken, isAdmin, async (req, res) => {
+api.delete('/users/:id', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete self' });
   
   await db.read();
@@ -368,14 +375,14 @@ api.delete('/users/:id', authenticateToken, isAdmin, async (req, res) => {
   db.data.users.splice(index, 1);
   await db.write();
   res.json({ status: 'success' });
-});
+}));
 
 api.get('/admin/backup/db', authenticateToken, isAdmin, (req, res) => {
   const dbPath = path.join(STORAGE_ROOT, 'database.json');
   res.download(dbPath, `cabinet-backup-${new Date().toISOString().split('T')[0]}.json`);
 });
 
-api.delete('/files/:id', authenticateToken, async (req, res) => {
+api.delete('/files/:id', authenticateToken, asyncHandler(async (req, res) => {
   await db.read();
   const fileIndex = db.data.files.findIndex(f => f.id === req.params.id && f.ownerId === req.user.id);
   
@@ -408,10 +415,10 @@ api.delete('/files/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
+}));
 
 // Task 5.1: File Content / Video Stream
-api.get('/files/:id/content', authenticateToken, async (req, res) => {
+api.get('/files/:id/content', authenticateToken, asyncHandler(async (req, res) => {
   try {
     await db.read();
     const file = db.data.files.find(f => f.id === req.params.id && f.ownerId === req.user.id);
@@ -431,7 +438,7 @@ api.get('/files/:id/content', authenticateToken, async (req, res) => {
     console.error('Content Error:', error);
     res.status(500).send('Internal Server Error');
   }
-});
+}));
 
 // Task 4.1: Serve Thumbnails
 api.get('/thumbnails/:id', authenticateToken, (req, res) => {
@@ -443,7 +450,7 @@ api.get('/thumbnails/:id', authenticateToken, (req, res) => {
 
 // --- Share Routes (Task 4.2) ---
 
-api.post('/shares', authenticateToken, async (req, res) => {
+api.post('/shares', authenticateToken, asyncHandler(async (req, res) => {
   const { fileId, password, expiresAt, maxDownloads } = req.body;
   if (!fileId) return res.status(400).json({ error: 'File ID required' });
 
@@ -476,7 +483,7 @@ api.post('/shares', authenticateToken, async (req, res) => {
   await db.write();
 
   res.json({ status: 'success', shareId, link: `/s/${shareId}` });
-});
+}));
 
 // Swagger Docs (Task 5.3)
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
@@ -486,7 +493,7 @@ api.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.use('/api', api);
 
 // Public Share Link Consumption (Keep at root for short URLs)
-app.get('/s/:id', async (req, res) => {
+app.get('/s/:id', asyncHandler(async (req, res) => {
   await db.read();
   const share = db.data.shares.find(s => s.id === req.params.id);
   
@@ -518,7 +525,7 @@ app.get('/s/:id', async (req, res) => {
   await db.write();
 
   res.download(file.path, file.name);
-});
+}));
 
 // SPA Fallback
 app.get('*', (req, res) => {
@@ -538,4 +545,5 @@ app.use((err, req, res, next) => {
 // Start Server
 app.listen(PORT, () => {
   console.log(`Cabinet Backend running on port ${PORT}`);
+  console.log(`Storage Root: ${STORAGE_ROOT}`);
 });
