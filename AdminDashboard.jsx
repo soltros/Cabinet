@@ -5,6 +5,7 @@ const AdminDashboard = ({ token, showToast }) => {
   const [activeTab, setActiveTab] = useState('users');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null); // { id, username, type: 'password' | 'quota', currentQuota? }
+  const [logs, setLogs] = useState('');
 
   useEffect(() => {
     fetchUsers();
@@ -29,6 +30,18 @@ const AdminDashboard = ({ token, showToast }) => {
       }
     } catch (e) {
       showToast('Failed to fetch users', 'error');
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const res = await fetch('/api/admin/logs', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const text = await res.text();
+      setLogs(text);
+    } catch (e) {
+      showToast('Failed to fetch logs', 'error');
     }
   };
 
@@ -125,49 +138,83 @@ const AdminDashboard = ({ token, showToast }) => {
     }
   };
 
+  useEffect(() => {
+    if (activeTab === 'logs') fetchLogs();
+  }, [activeTab]);
+
   return (
     <div className="max-w-7xl mx-auto p-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
         <h2 className="text-2xl md:text-3xl font-bold text-gray-800">Admin Dashboard</h2>
         <div className="flex gap-2 w-full md:w-auto">
           <button onClick={downloadBackup} className="flex-1 md:flex-none bg-gray-100 text-gray-700 px-3 py-2 text-sm md:px-4 md:py-2 md:text-base rounded-lg font-medium hover:bg-gray-200 text-center">Download Backup</button>
-          <button onClick={() => setShowCreateModal(true)} className="flex-1 md:flex-none bg-blue-600 text-white px-3 py-2 text-sm md:px-4 md:py-2 md:text-base rounded-lg font-medium hover:bg-blue-700 text-center">Create User</button>
+          {activeTab === 'users' && (
+            <button onClick={() => setShowCreateModal(true)} className="flex-1 md:flex-none bg-blue-600 text-white px-3 py-2 text-sm md:px-4 md:py-2 md:text-base rounded-lg font-medium hover:bg-blue-700 text-center">Create User</button>
+          )}
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-              <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Usage</th>
-              <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {users.map(user => (
-              <tr key={user.id}>
-                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{user.username} {user.username === 'admin' && <span className="text-gray-400 font-normal">(System)</span>}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex flex-col w-48">
-                    <span className="text-xs text-gray-500 mb-1">{formatBytes(user.usedSpace)} / {formatBytes(user.quota)}</span>
-                    <div className="w-full bg-gray-100 rounded-full h-1.5">
-                      <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (user.usedSpace / user.quota) * 100)}%` }}></div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button onClick={() => setEditingUser({ ...user, type: 'quota', currentQuota: user.quota / (1024**3) })} className="text-blue-600 hover:text-blue-900 mr-4">Quota</button>
-                  <button onClick={() => setEditingUser({ ...user, type: 'password' })} className="text-blue-600 hover:text-blue-900 mr-4">Password</button>
-                  {user.username !== 'admin' && (
-                    <button onClick={() => handleDeleteUser(user.id)} className="text-red-600 hover:text-red-900">Delete</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex gap-6 mb-6 border-b border-gray-200">
+        <button 
+          onClick={() => setActiveTab('users')} 
+          className={`pb-3 px-2 font-medium transition-colors ${activeTab === 'users' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Users
+        </button>
+        <button 
+          onClick={() => setActiveTab('logs')} 
+          className={`pb-3 px-2 font-medium transition-colors ${activeTab === 'logs' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          System Logs
+        </button>
       </div>
+
+      {activeTab === 'users' ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Usage</th>
+                <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {users.map(user => (
+                <tr key={user.id}>
+                  <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{user.username} {user.username === 'admin' && <span className="text-gray-400 font-normal">(System)</span>}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex flex-col w-48">
+                      <span className="text-xs text-gray-500 mb-1">{formatBytes(user.usedSpace)} / {formatBytes(user.quota)}</span>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (user.usedSpace / user.quota) * 100)}%` }}></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button onClick={() => setEditingUser({ ...user, type: 'quota', currentQuota: user.quota / (1024**3) })} className="text-blue-600 hover:text-blue-900 mr-4">Quota</button>
+                    <button onClick={() => setEditingUser({ ...user, type: 'password' })} className="text-blue-600 hover:text-blue-900 mr-4">Password</button>
+                    {user.username !== 'admin' && (
+                      <button onClick={() => handleDeleteUser(user.id)} className="text-red-600 hover:text-red-900">Delete</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[600px]">
+          <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+            <h3 className="font-medium text-gray-700">Server Logs</h3>
+            <div className="flex gap-2">
+              <button onClick={fetchLogs} className="text-sm text-blue-600 hover:text-blue-800 font-medium px-3 py-1">Refresh</button>
+              <button onClick={() => window.open(`/api/admin/logs?download=true&token=${token}`, '_blank')} className="text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium px-3 py-1 rounded">Download</button>
+            </div>
+          </div>
+          <pre className="flex-1 p-4 overflow-auto text-xs font-mono bg-gray-900 text-gray-100 whitespace-pre-wrap">{logs || 'Loading logs...'}</pre>
+        </div>
+      )}
 
       {/* Modals for Create/Edit would go here (simplified for brevity, using same pattern as App.jsx) */}
       {(showCreateModal || editingUser) && (

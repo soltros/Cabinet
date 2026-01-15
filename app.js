@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import morgan from 'morgan';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -22,6 +23,25 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 4444;
+
+// Setup Logging
+const LOG_FILE = path.join(STORAGE_ROOT, 'cabinet.log');
+const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+
+const originalLog = console.log;
+const originalError = console.error;
+
+console.log = (...args) => {
+  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+  logStream.write(`[${new Date().toISOString()}] [INFO] ${msg}\n`);
+  originalLog.apply(console, args);
+};
+
+console.error = (...args) => {
+  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+  logStream.write(`[${new Date().toISOString()}] [ERROR] ${msg}\n`);
+  originalError.apply(console, args);
+};
 
 // Middleware
 app.use(helmet({
@@ -46,6 +66,7 @@ app.use(helmet({
   },
 }));
 app.use(cors());
+app.use(morgan('combined', { stream: logStream }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -382,6 +403,16 @@ api.get('/admin/backup/db', authenticateToken, isAdmin, (req, res) => {
   res.download(dbPath, `cabinet-backup-${new Date().toISOString().split('T')[0]}.json`);
 });
 
+api.get('/admin/logs', authenticateToken, isAdmin, (req, res) => {
+  const logPath = path.join(STORAGE_ROOT, 'cabinet.log');
+  if (!fs.existsSync(logPath)) return res.status(404).send('No logs available');
+
+  if (req.query.download === 'true') {
+    return res.download(logPath, `cabinet-logs-${new Date().toISOString()}.log`);
+  }
+  res.sendFile(logPath);
+});
+
 api.delete('/files/:id', authenticateToken, asyncHandler(async (req, res) => {
   await db.read();
   const fileIndex = db.data.files.findIndex(f => f.id === req.params.id && f.ownerId === req.user.id);
@@ -529,7 +560,12 @@ app.get('/s/:id', asyncHandler(async (req, res) => {
 
 // SPA Fallback
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist/index.html'));
+  const index = path.join(__dirname, 'dist/index.html');
+  if (fs.existsSync(index)) {
+    res.sendFile(index);
+  } else {
+    res.status(404).send('Cabinet is running, but the frontend build is missing.');
+  }
 });
 
 // Global Error Handler
@@ -543,7 +579,6 @@ app.use((err, req, res, next) => {
 });
 
 // Start Server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Cabinet Backend running on port ${PORT}`);
-  console.log(`Storage Root: ${STORAGE_ROOT}`);
 });

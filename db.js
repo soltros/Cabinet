@@ -18,7 +18,19 @@ const defaultData = { files: [], shares: [], users: [], folders: [] };
 const db = new Low(adapter, defaultData);
 
 // Read data or initialize with defaults
-await db.read();
+try {
+  await db.read();
+} catch (err) {
+  console.error('[DB] Failed to read database:', err);
+  // Backup the corrupt file if it exists
+  const backupPath = `${file}.corrupt-${Date.now()}`;
+  try {
+    await fs.copyFile(file, backupPath);
+    console.log(`[DB] Corrupt database backed up to ${backupPath}`);
+  } catch (e) {
+    console.error('[DB] Failed to backup corrupt database:', e);
+  }
+}
 
 // Ensure schema integrity (in case of partial data or empty object)
 db.data ||= { ...defaultData };
