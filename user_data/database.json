@@ -1,0 +1,140 @@
+{
+  "files": [
+    {
+      "id": "2f524030-3fd6-4016-bd4c-3fca2e87e369",
+      "ownerId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "name": "4.png",
+      "extension": "png",
+      "mimeType": "image/png",
+      "size": 13056,
+      "hash": "31735e878baaf9f45df3bae74a692837dd2615979f2b00e095863c5f9544b7f0",
+      "path": "/home/derrik/Documents/projects/cabinet/user_data/dfe2be62-3ca8-4026-8435-3b99594df44b/user_data/4.png",
+      "thumbnail": "/api/thumbnails/2f524030-3fd6-4016-bd4c-3fca2e87e369",
+      "createdAt": "2026-01-15T11:14:43.975Z",
+      "updatedAt": "2026-01-15T11:14:43.975Z"
+    },
+    {
+      "id": "60387355-fc5e-46db-8ef5-61f9a6a7c3be",
+      "ownerId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "name": "5.png",
+      "extension": "png",
+      "mimeType": "image/png",
+      "size": 85061,
+      "hash": "1c2ecf5734aca27667d40caced6d3c9bf8ade81366a049e4de75ddc38b2d11ca",
+      "path": "/home/derrik/Documents/projects/cabinet/user_data/dfe2be62-3ca8-4026-8435-3b99594df44b/user_data/5.png",
+      "thumbnail": "/api/thumbnails/60387355-fc5e-46db-8ef5-61f9a6a7c3be",
+      "createdAt": "2026-01-15T11:14:43.991Z",
+      "updatedAt": "2026-01-15T11:14:43.991Z"
+    },
+    {
+      "id": "78f6d698-7fe8-4a66-a08d-eb2008a0856b",
+      "ownerId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "name": "1.png",
+      "extension": "png",
+      "mimeType": "image/png",
+      "size": 74123,
+      "hash": "301c8a223dee068bb3281867db77e2e133ef355639d67f0e21ec8bf11fc79f71",
+      "path": "/home/derrik/Documents/projects/cabinet/user_data/dfe2be62-3ca8-4026-8435-3b99594df44b/user_data/1.png",
+      "thumbnail": "/api/thumbnails/78f6d698-7fe8-4a66-a08d-eb2008a0856b",
+      "createdAt": "2026-01-15T11:14:44.006Z",
+      "updatedAt": "2026-01-15T11:14:44.006Z"
+    },
+    {
+      "id": "41a2ad37-0525-4fd6-af8b-250d97684637",
+      "ownerId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "name": "2.png",
+      "extension": "png",
+      "mimeType": "image/png",
+      "size": 86332,
+      "hash": "b965af8397f84a7f6b49ff0d8c69fb46fbed4994dafceefe2cda01eb581236fc",
+      "path": "/home/derrik/Documents/projects/cabinet/user_data/dfe2be62-3ca8-4026-8435-3b99594df44b/user_data/2.png",
+      "thumbnail": "/api/thumbnails/41a2ad37-0525-4fd6-af8b-250d97684637",
+      "createdAt": "2026-01-15T11:14:44.010Z",
+      "updatedAt": "2026-01-15T11:14:44.010Z"
+    },
+    {
+      "id": "7fa8c719-3c88-4483-8f1e-eff327ad3dd9",
+      "ownerId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "name": "3.png",
+      "extension": "png",
+      "mimeType": "image/png",
+      "size": 101066,
+      "hash": "eeeab770b5215b6ad14649f7fedbb1ded73d3b0473736a5a1c6fbf4c96c53569",
+      "path": "/home/derrik/Documents/projects/cabinet/user_data/dfe2be62-3ca8-4026-8435-3b99594df44b/user_data/3.png",
+      "thumbnail": "/api/thumbnails/7fa8c719-3c88-4483-8f1e-eff327ad3dd9",
+      "createdAt": "2026-01-15T11:14:44.010Z",
+      "updatedAt": "2026-01-15T11:14:44.010Z"
+    },
+    {
+      "id": "e9ab374e-e94b-4982-8e74-5de31fc0961e",
+      "ownerId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "name": "Docker cheat sheet.pdf",
+      "extension": "pdf",
+      "mimeType": "application/pdf",
+      "size": 39317,
+      "hash": "7f77a459e06c64853a3ed67d393fabe623400b3c7cba15cbf8703f4acaacaf88",
+      "path": "/home/derrik/Documents/projects/cabinet/user_data/dfe2be62-3ca8-4026-8435-3b99594df44b/user_data/Docker cheat sheet.pdf",
+      "thumbnail": null,
+      "createdAt": "2026-01-15T11:58:15.680Z",
+      "updatedAt": "2026-01-15T11:58:15.680Z"
+    }
+  ],
+  "shares": [
+    {
+      "id": "bd9d7102",
+      "fileId": "ac0a0a48-a5bb-4e00-a0a5-21004735454d",
+      "creatorId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "createdAt": "2026-01-15T11:10:05.600Z",
+      "active": true,
+      "currentDownloads": 0,
+      "isPasswordProtected": false,
+      "passwordHash": null,
+      "expiresAt": null,
+      "maxDownloads": null
+    },
+    {
+      "id": "c8eff22e",
+      "fileId": "7f27c2c8-3268-44f0-976d-80e1fad2b26f",
+      "creatorId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "createdAt": "2026-01-15T11:12:36.137Z",
+      "active": true,
+      "currentDownloads": 1,
+      "isPasswordProtected": false,
+      "passwordHash": null,
+      "expiresAt": null,
+      "maxDownloads": null
+    },
+    {
+      "id": "7e2c4c26",
+      "fileId": "7fa8c719-3c88-4483-8f1e-eff327ad3dd9",
+      "creatorId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "createdAt": "2026-01-15T11:24:33.061Z",
+      "active": true,
+      "currentDownloads": 0,
+      "isPasswordProtected": false,
+      "passwordHash": null,
+      "expiresAt": null,
+      "maxDownloads": null
+    },
+    {
+      "id": "a0fcf76b",
+      "fileId": "3322fa87-e37e-4f7f-9d93-7decba982375",
+      "creatorId": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "createdAt": "2026-01-15T11:36:52.071Z",
+      "active": true,
+      "currentDownloads": 1,
+      "isPasswordProtected": false,
+      "passwordHash": null,
+      "expiresAt": null,
+      "maxDownloads": null
+    }
+  ],
+  "users": [
+    {
+      "id": "dfe2be62-3ca8-4026-8435-3b99594df44b",
+      "username": "admin",
+      "password": "$2a$10$802BR7dAdwFW0bbn8g8fROxaufA4xRtY4S4vJqGNeA2k9aJTYdX3a",
+      "usedSpace": 0
+    }
+  ]
+}

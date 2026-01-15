@@ -1,0 +1,97 @@
+openapi: 3.0.0
+info:
+  title: Cabinet API
+  version: 1.0.0
+  description: API documentation for Cabinet File Locker
+servers:
+  - url: /
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        200:
+          description: User created
+  /auth/login:
+    post:
+      summary: Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        200:
+          description: JWT Token returned
+  /upload:
+    post:
+      summary: Upload a file
+      consumes:
+        - multipart/form-data
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        200:
+          description: File uploaded
+  /files:
+    get:
+      summary: List user files
+      responses:
+        200:
+          description: List of files
+  /files/{id}/content:
+    get:
+      summary: Download/Stream file content
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: File stream
+  /shares:
+    post:
+      summary: Create a public share link
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fileId: { type: string }
+                password: { type: string }
+      responses:
+        200:
+          description: Share link created

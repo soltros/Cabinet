@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  cabinet:
+    container_name: cabinet
+    build: .
+    ports:
+      - "4444:4444"
+    volumes:
+      - ./user_data:/app/users
+    environment:
+      - PORT=4444
+      - NODE_ENV=production
+      - STORAGE_PATH=/app/users
+      - MAX_UPLOAD_SIZE=524288000 # 500MB
+      # - JWT_SECRET=your_secure_secret
+    restart: unless-stopped
