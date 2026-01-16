@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import FileGrid from './FileGrid';
 import UploadProgress from './UploadProgress';
 import AdminDashboard from './AdminDashboard';
+import PublicShare from './PublicShare';
 import cabinetIcon from './cabinet-icon.svg';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -18,6 +19,8 @@ function App() {
   const [toast, setToast] = useState(null); // { message, type }
   const [confirmModal, setConfirmModal] = useState(null); // { message, onConfirm }
   const [editQuotaModal, setEditQuotaModal] = useState(null); // { userId, currentQuota }
+  const [inputModal, setInputModal] = useState(null); // { title, label, onConfirm }
+  const [shareModal, setShareModal] = useState(null); // { file }
   const [qrCodeLink, setQrCodeLink] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [drawerDragY, setDrawerDragY] = useState(0);
@@ -32,6 +35,11 @@ function App() {
   const [password, setPassword] = useState('');
 
   useEffect(() => {
+    // Handle Public Share Route
+    if (window.location.pathname.startsWith('/s/')) {
+      return; // Do nothing, let the render handle it
+    }
+
     if (token) fetchFiles();
     if (token) fetchFolders();
   }, [token]);
@@ -123,6 +131,12 @@ function App() {
       const res = await fetch('/api/folders', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (res.status === 401) {
+        setToken(null);
+        localStorage.removeItem('token');
+        setView('files');
+        return;
+      }
       if (!res.ok) throw new Error(`Failed to fetch folders: ${res.status}`);
       const data = await res.json();
       setFolders(data.folders || []);
@@ -136,6 +150,12 @@ function App() {
       const res = await fetch('/api/files', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (res.status === 401) {
+        setToken(null);
+        localStorage.removeItem('token');
+        setView('files');
+        return;
+      }
       if (!res.ok) throw new Error(`Failed to fetch files: ${res.status}`);
       const data = await res.json();
       setFiles(data.files || []);
@@ -240,25 +260,7 @@ function App() {
 
   const handleShare = async () => {
     if (!selectedFile) return;
-    try {
-      const res = await fetch('/api/shares', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
-        },
-        body: JSON.stringify({ fileId: selectedFile.id })
-      });
-      const data = await res.json();
-      if (data.link) {
-        const fullLink = `${window.location.origin}${data.link}`;
-        await navigator.clipboard.writeText(fullLink);
-        showToast('Link copied to clipboard!', 'success');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Share failed', 'error');
-    }
+    setShareModal({ file: selectedFile });
   };
 
   const handleQRCode = async () => {
@@ -327,6 +329,13 @@ function App() {
     setDrawerDragY(0);
   };
 
+  const openConfirmModal = (message, onConfirm) => {
+    setConfirmModal({
+      message,
+      onConfirm
+    });
+  };
+
   const handleUploadClick = () => {
     fileInputRef.current?.click();
   };
@@ -349,23 +358,25 @@ function App() {
   };
 
   const handleCreateFolder = async () => {
-    const name = prompt('Folder name:');
-    if (!name) return;
-    try {
-      const res = await fetch('/api/folders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name, parentId: currentFolder })
-      });
-      if (res.ok) {
-        fetchFolders();
-        showToast('Folder created', 'success');
-      } else {
-        showToast('Failed to create folder', 'error');
+    setInputModal({
+      title: 'New Folder',
+      label: 'Folder Name',
+      onConfirm: async (name) => {
+        try {
+          const res = await fetch('/api/folders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ name, parentId: currentFolder })
+          });
+          if (res.ok) {
+            fetchFolders();
+            showToast('Folder created', 'success');
+          } else {
+            showToast('Failed to create folder', 'error');
+          }
+        } catch (e) { console.error(e); }
       }
-    } catch (e) {
-      console.error(e);
-    }
+    });
   };
 
   const getBreadcrumbs = () => {
@@ -380,6 +391,12 @@ function App() {
     }
     return [...crumbs, ...path];
   };
+
+  // Render Public Share View
+  if (window.location.pathname.startsWith('/s/')) {
+    const shareId = window.location.pathname.split('/')[2];
+    return <PublicShare shareId={shareId} />;
+  }
 
   if (!token) {
     return (
@@ -484,7 +501,7 @@ function App() {
               </button>
             )}
             <button 
-              onClick={() => { localStorage.removeItem('token'); setToken(null); }}
+              onClick={() => { localStorage.removeItem('token'); setToken(null); setView('files'); }}
               className="text-sm text-gray-500 hover:text-red-500"
             >
               Logout
@@ -494,8 +511,8 @@ function App() {
       </header>
 
       {/* Main Content */}
-      {view === 'admin' ? (
-        <AdminDashboard token={token} showToast={showToast} />
+      {view === 'admin' && isAdmin() ? (
+        <AdminDashboard token={token} showToast={showToast} openConfirmModal={openConfirmModal} />
       ) : (
         <main className="max-w-7xl mx-auto mt-4">
           <div className="md:hidden px-4 mb-4">
@@ -634,6 +651,101 @@ function App() {
               <button onClick={() => setConfirmModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Cancel</button>
               <button onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Confirm</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Input Modal */}
+      {inputModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 shadow-2xl max-w-sm w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">{inputModal.title}</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              inputModal.onConfirm(e.target.input.value);
+              setInputModal(null);
+            }}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{inputModal.label}</label>
+              <input name="input" className="w-full p-2 border rounded-lg mb-6" autoFocus required />
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => setInputModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Confirm</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Share Modal */}
+      {shareModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 shadow-2xl max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Share File</h3>
+            
+            <div className="mb-6">
+              <h4 className="text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">Public Link</h4>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const data = Object.fromEntries(formData.entries());
+                try {
+                  const res = await fetch('/api/shares', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ fileId: shareModal.file.id, ...data })
+                  });
+                  const json = await res.json();
+                  if (json.link) {
+                    const fullLink = `${window.location.origin}${json.link}`;
+                    await navigator.clipboard.writeText(fullLink);
+                    showToast('Link copied to clipboard!', 'success');
+                    setShareModal(null);
+                  }
+                } catch (err) { showToast('Share failed', 'error'); }
+              }}>
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Password (Optional)</label>
+                    <input name="password" type="password" className="w-full p-2 border rounded text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Max Downloads</label>
+                    <input name="maxDownloads" type="number" className="w-full p-2 border rounded text-sm" />
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs text-gray-500 mb-1">Expiration</label>
+                  <input name="expiresAt" type="datetime-local" className="w-full p-2 border rounded text-sm" />
+                </div>
+                <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 text-sm">Generate Link</button>
+              </form>
+            </div>
+
+            <div className="border-t border-gray-100 pt-4">
+              <h4 className="text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">Internal Share</h4>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const username = e.target.username.value;
+                try {
+                  const res = await fetch(`/api/files/${shareModal.file.id}/share`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ username })
+                  });
+                  if (res.ok) {
+                    showToast(`Shared with ${username}`, 'success');
+                    setShareModal(null);
+                  } else {
+                    const err = await res.json();
+                    showToast(err.error || 'Share failed', 'error');
+                  }
+                } catch (err) { showToast('Share failed', 'error'); }
+              }} className="flex gap-2">
+                <input name="username" placeholder="Username" className="flex-1 p-2 border rounded text-sm" required />
+                <button type="submit" className="bg-gray-800 text-white px-4 py-2 rounded-lg font-medium hover:bg-gray-900 text-sm">Share</button>
+              </form>
+            </div>
+            <button onClick={() => setShareModal(null)} className="mt-4 w-full text-gray-500 text-sm hover:text-gray-700">Close</button>
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const AdminDashboard = ({ token, showToast }) => {
+const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
   const [users, setUsers] = useState([]);
   const [activeTab, setActiveTab] = useState('users');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -101,21 +101,22 @@ const AdminDashboard = ({ token, showToast }) => {
   };
 
   const handleDeleteUser = async (userId) => {
-    if (!confirm('Delete this user and ALL their files? This cannot be undone.')) return;
-    try {
-      const res = await fetch(`/api/users/${userId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        setUsers(users.filter(u => u.id !== userId));
-        showToast('User deleted', 'success');
-      } else {
-        showToast('Failed to delete user', 'error');
+    openConfirmModal('Delete this user and ALL their files? This cannot be undone.', async () => {
+      try {
+        const res = await fetch(`/api/users/${userId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          setUsers(users.filter(u => u.id !== userId));
+          showToast('User deleted', 'success');
+        } else {
+          showToast('Failed to delete user', 'error');
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
       }
-    } catch (e) {
-      showToast(e.message, 'error');
-    }
+    });
   };
 
   const downloadBackup = async () => {
@@ -138,6 +139,26 @@ const AdminDashboard = ({ token, showToast }) => {
     }
   };
 
+  const handleScrubDatabase = async () => {
+    openConfirmModal('This will remove database records for files that are missing from the disk. Continue?', async () => {
+      try {
+        const res = await fetch('/api/admin/scrub', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Scrub complete. Removed ${data.removedCount} orphaned entries.`, 'success');
+          fetchUsers();
+        } else {
+          showToast('Failed to scrub database', 'error');
+        }
+      } catch (e) {
+        showToast('Error scrubbing database', 'error');
+      }
+    });
+  };
+
   useEffect(() => {
     if (activeTab === 'logs') fetchLogs();
   }, [activeTab]);
@@ -147,6 +168,7 @@ const AdminDashboard = ({ token, showToast }) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
         <h2 className="text-2xl md:text-3xl font-bold text-gray-800">Admin Dashboard</h2>
         <div className="flex gap-2 w-full md:w-auto">
+          <button onClick={handleScrubDatabase} className="flex-1 md:flex-none bg-yellow-100 text-yellow-700 px-3 py-2 text-sm md:px-4 md:py-2 md:text-base rounded-lg font-medium hover:bg-yellow-200 text-center">Scrub DB</button>
           <button onClick={downloadBackup} className="flex-1 md:flex-none bg-gray-100 text-gray-700 px-3 py-2 text-sm md:px-4 md:py-2 md:text-base rounded-lg font-medium hover:bg-gray-200 text-center">Download Backup</button>
           {activeTab === 'users' && (
             <button onClick={() => setShowCreateModal(true)} className="flex-1 md:flex-none bg-blue-600 text-white px-3 py-2 text-sm md:px-4 md:py-2 md:text-base rounded-lg font-medium hover:bg-blue-700 text-center">Create User</button>

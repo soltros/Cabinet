@@ -253,7 +253,10 @@ api.post('/upload', authenticateToken, upload.single('file'), asyncHandler(async
 api.get('/files', authenticateToken, asyncHandler(async (req, res) => {
   await db.read();
   db.data ||= { files: [], shares: [], users: [], folders: [] };
-  const files = db.data.files.filter(f => f.ownerId === req.user.id);
+  const files = db.data.files.filter(f => 
+    f.ownerId === req.user.id || 
+    (f.sharedWith && f.sharedWith.includes(req.user.id))
+  );
   res.json({ files });
 }));
 
@@ -270,6 +273,28 @@ api.patch('/files/:id', authenticateToken, asyncHandler(async (req, res) => {
   file.updatedAt = new Date().toISOString();
   await db.write();
   res.json({ status: 'success', file });
+}));
+
+api.post('/files/:id/share', authenticateToken, asyncHandler(async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username required' });
+
+  await db.read();
+  const file = db.data.files.find(f => f.id === req.params.id && f.ownerId === req.user.id);
+  if (!file) return res.status(404).json({ error: 'File not found or permission denied' });
+
+  const targetUser = db.data.users.find(u => u.username === username);
+  if (!targetUser) return res.status(404).json({ error: 'User not found' });
+
+  if (targetUser.id === req.user.id) return res.status(400).json({ error: 'Cannot share with yourself' });
+
+  file.sharedWith = file.sharedWith || [];
+  if (!file.sharedWith.includes(targetUser.id)) {
+    file.sharedWith.push(targetUser.id);
+    await db.write();
+  }
+
+  res.json({ status: 'success' });
 }));
 
 // Folder Routes
@@ -413,6 +438,26 @@ api.get('/admin/logs', authenticateToken, isAdmin, (req, res) => {
   res.sendFile(logPath);
 });
 
+api.post('/admin/scrub', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
+  await db.read();
+  const initialCount = db.data.files.length;
+  
+  // Filter files that exist on disk
+  const validFiles = db.data.files.filter(file => fs.existsSync(file.path));
+
+  const removedCount = initialCount - validFiles.length;
+  db.data.files = validFiles;
+
+  // Recalculate used space for all users
+  db.data.users.forEach(user => {
+    const userFiles = db.data.files.filter(f => f.ownerId === user.id);
+    user.usedSpace = userFiles.reduce((acc, f) => acc + f.size, 0);
+  });
+
+  await db.write();
+  res.json({ status: 'success', removedCount });
+}));
+
 api.delete('/files/:id', authenticateToken, asyncHandler(async (req, res) => {
   await db.read();
   const fileIndex = db.data.files.findIndex(f => f.id === req.params.id && f.ownerId === req.user.id);
@@ -523,33 +568,47 @@ api.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 // Mount API Router
 app.use('/api', api);
 
-// Public Share Link Consumption (Keep at root for short URLs)
-app.get('/s/:id', asyncHandler(async (req, res) => {
+// Public Share Info (No Auth Required)
+api.get('/public/shares/:id', asyncHandler(async (req, res) => {
   await db.read();
   const share = db.data.shares.find(s => s.id === req.params.id);
-  
-  if (!share || !share.active) return res.status(404).send('Link not found or expired');
+  if (!share || !share.active) return res.status(404).json({ error: 'Link not found or expired' });
 
   // Task 4.3: Check Expiration
-  if (share.expiresAt && new Date() > new Date(share.expiresAt)) {
-    return res.status(410).send('Link expired');
-  }
-
+  if (share.expiresAt && new Date() > new Date(share.expiresAt)) return res.status(410).json({ error: 'Link expired' });
   // Task 4.3: Check Max Downloads
-  if (share.maxDownloads && share.currentDownloads >= share.maxDownloads) {
-    return res.status(410).send('Download limit reached');
-  }
+  if (share.maxDownloads && share.currentDownloads >= share.maxDownloads) return res.status(410).json({ error: 'Download limit reached' });
 
-  // Task 4.3: Check Password
+  const file = db.data.files.find(f => f.id === share.fileId);
+  if (!file) return res.status(404).json({ error: 'File source not found' });
+
+  res.json({
+    name: file.name,
+    size: file.size,
+    mimeType: file.mimeType,
+    isPasswordProtected: share.isPasswordProtected,
+    id: share.id
+  });
+}));
+
+// Public Share Download (No Auth Required)
+api.post('/public/shares/:id/download', asyncHandler(async (req, res) => {
+  const { password } = req.body;
+  await db.read();
+  const share = db.data.shares.find(s => s.id === req.params.id);
+  if (!share || !share.active) return res.status(404).json({ error: 'Link not found' });
+
+  if (share.expiresAt && new Date() > new Date(share.expiresAt)) return res.status(410).json({ error: 'Link expired' });
+  if (share.maxDownloads && share.currentDownloads >= share.maxDownloads) return res.status(410).json({ error: 'Download limit reached' });
+
   if (share.isPasswordProtected) {
-    const providedPassword = req.query.password || req.headers['x-share-password'];
-    if (!providedPassword || !(await bcrypt.compare(providedPassword, share.passwordHash))) {
+    if (!password || !(await bcrypt.compare(password, share.passwordHash))) {
       return res.status(401).json({ error: 'Password required' });
     }
   }
 
   const file = db.data.files.find(f => f.id === share.fileId);
-  if (!file) return res.status(404).send('File source not found');
+  if (!file) return res.status(404).json({ error: 'File not found' });
 
   // Update download count
   share.currentDownloads = (share.currentDownloads || 0) + 1;
