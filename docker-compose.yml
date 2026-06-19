@@ -14,4 +14,5 @@ services:
       - STORAGE_PATH=/app/users
       - MAX_UPLOAD_SIZE=524288000 # 500MB
       # - JWT_SECRET=your_secure_secret
+      # - ENCRYPTION_KEY=your_secure_encryption_key
     restart: unless-stopped
