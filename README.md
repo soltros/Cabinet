@@ -32,6 +32,7 @@ Set these variables in your container run config or docker-compose file:
   > ```
 * `STORAGE_PATH`: Path to the persistent user storage folder (defaults to `/app/users`).
 * `MAX_UPLOAD_SIZE`: Maximum single file size allowed for upload in bytes.
+* `REGISTRATION_CODE`: Optional invite/sign-up code. If defined, users registering on the login screen must enter this matching code to successfully create an account. If left blank, registration is open to anyone.
 
 ### Quick Start
 

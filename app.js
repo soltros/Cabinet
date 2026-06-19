@@ -127,7 +127,14 @@ const asyncHandler = (fn) => (req, res, next) => {
 
 api.post('/auth/register', asyncHandler(async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, registrationCode } = req.body;
+
+    // Validate registration code if configured in environment
+    const requiredCode = process.env.REGISTRATION_CODE;
+    if (requiredCode && registrationCode !== requiredCode) {
+      return res.status(400).json({ error: 'Invalid sign-up code' });
+    }
+
     if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
 
     // Input Validation: Validate username format

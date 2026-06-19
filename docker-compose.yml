@@ -15,4 +15,5 @@ services:
       - MAX_UPLOAD_SIZE=524288000 # 500MB
       # - JWT_SECRET=your_secure_secret # Generate with: openssl rand -hex 32
       # - ENCRYPTION_KEY=your_secure_encryption_key # Generate with: openssl rand -hex 32
+      # - REGISTRATION_CODE=your_signup_code_here
     restart: unless-stopped

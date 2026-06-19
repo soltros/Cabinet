@@ -34,6 +34,7 @@ function App() {
   // Login State
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [registrationCode, setRegistrationCode] = useState('');
 
   useEffect(() => {
     // Handle Public Share Route
@@ -98,7 +99,7 @@ function App() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password, registrationCode })
       });
       
       const contentType = res.headers.get("content-type");
@@ -547,6 +548,18 @@ function App() {
                 required
               />
             </div>
+            {isSignUp && (
+              <div>
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1.5 ml-1">Sign-up Code</label>
+                <input
+                  type="text"
+                  placeholder="Invite Code (if required)"
+                  className="w-full p-3 bg-slate-950/80 border border-slate-800 text-white rounded-xl placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                  value={registrationCode}
+                  onChange={e => setRegistrationCode(e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
           <button 
