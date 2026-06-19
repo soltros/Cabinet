@@ -31,7 +31,7 @@ COPY package*.json ./
 RUN npm install --production
 
 # Copy backend source files
-COPY app.js auth.js db.js storage.js swagger.yaml ./
+COPY app.js auth.js db.js storage.js crypto.js swagger.yaml ./
 
 # Copy built frontend from builder stage
 COPY --from=builder /app/dist ./dist
