@@ -4,3 +4,4 @@ user_data/
 .DS_Store
 dist/assets/index-*.js
 dist/assets/index-*.css
+.agents/AGENTS.md
