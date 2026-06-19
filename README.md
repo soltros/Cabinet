@@ -16,6 +16,13 @@ Cabinet is a lean, self-hosted file locker. It focuses on a fast, mobile-friendl
 Set these variables in your container run config or docker-compose file:
 * `JWT_SECRET`: Secret key for session authentication.
 * `ENCRYPTION_KEY`: Secret key used to encrypt/decrypt physical files at rest.
+  > [!WARNING]
+  > File encryption is always active. If `ENCRYPTION_KEY` is omitted, Cabinet falls back to a public, insecure default key (`'dev-secret-key'`). **Setting a custom, random key is mandatory for production deployments** to keep files secure on disk.
+  >
+  > You can generate a secure 256-bit hex key by running:
+  > ```bash
+  > openssl rand -hex 32
+  > ```
 * `STORAGE_PATH`: Path to the persistent user storage folder (defaults to `/app/users`).
 * `MAX_UPLOAD_SIZE`: Maximum single file size allowed for upload in bytes.
 
