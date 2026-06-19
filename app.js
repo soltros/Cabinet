@@ -405,6 +405,57 @@ api.delete('/folders/:id', authenticateToken, asyncHandler(async (req, res) => {
 }));
 
 // Admin Routes
+api.get('/admin/stats', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
+  await db.read();
+  const totalUsers = db.data.users.length;
+  const totalFiles = db.data.files.length;
+  const totalShares = db.data.shares.filter(s => s.active).length;
+  
+  const totalStorageUsed = db.data.users.reduce((acc, u) => acc + (u.usedSpace || 0), 0);
+  const totalStorageQuota = db.data.users.reduce((acc, u) => acc + (u.quota || 53687091200), 0);
+
+  res.json({
+    totalUsers,
+    totalFiles,
+    totalShares,
+    totalStorageUsed,
+    totalStorageQuota
+  });
+}));
+
+api.get('/admin/shares', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
+  await db.read();
+  const shares = db.data.shares.map(s => {
+    const file = db.data.files.find(f => f.id === s.fileId);
+    const creator = db.data.users.find(u => u.id === s.creatorId);
+    return {
+      ...s,
+      fileName: file ? file.name : 'Unknown File',
+      fileSize: file ? file.size : 0,
+      creatorName: creator ? creator.username : 'Unknown User'
+    };
+  });
+  res.json({ shares });
+}));
+
+api.delete('/shares/:id', authenticateToken, asyncHandler(async (req, res) => {
+  await db.read();
+  const shareIndex = db.data.shares.findIndex(s => s.id === req.params.id);
+  if (shareIndex === -1) return res.status(404).json({ error: 'Share link not found' });
+
+  const share = db.data.shares[shareIndex];
+  const isOwner = share.creatorId === req.user.id;
+  const isSystemAdmin = req.user.username === 'admin';
+  
+  if (!isOwner && !isSystemAdmin) {
+    return res.status(403).json({ error: 'Permission denied' });
+  }
+
+  db.data.shares.splice(shareIndex, 1);
+  await db.write();
+  res.json({ status: 'success' });
+}));
+
 api.get('/users', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   await db.read();
   const users = db.data.users.map(u => ({ 
