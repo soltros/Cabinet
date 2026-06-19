@@ -80,3 +80,24 @@ tar -czf cabinet-backup-$(date +%F).tar.gz ./user_data
    ```bash
    npm run dev
    ```
+
+---
+
+## Seed Data & Screenshots
+
+When Cabinet initializes for the first time, the default admin account (`admin` / `admin123`) is pre-populated with several example assets. This allows you to immediately test grid/list view toggles, instant search, encrypted content streaming, and link sharing. 
+
+These example images showcase the interface of Cabinet's companion project, **Whiteboard**:
+
+### Grid View
+![Whiteboard Grid View](docs/images/2.png)
+
+### List View
+![Whiteboard List View](docs/images/3.png)
+
+### Settings & Admin Panel
+![Whiteboard Admin Panel](docs/images/1.png)
+
+### Dialog Modals
+![Create Dialog](docs/images/4.png)
+![Tag Cloud Dialog](docs/images/5.png)
