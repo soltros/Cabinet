@@ -36,7 +36,7 @@ const PublicShare = ({ shareId }) => {
   const handleDownload = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`/api/public/shares/${shareId}/download`, {
+      const res = await fetch(`/api/public/shares/${shareId}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password })
@@ -44,18 +44,22 @@ const PublicShare = ({ shareId }) => {
       
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Download failed');
+        throw new Error(err.error || 'Verification failed');
       }
 
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = metadata.name;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = `/api/public/shares/${shareId}/download`;
+
+      const pwdInput = document.createElement('input');
+      pwdInput.type = 'hidden';
+      pwdInput.name = 'password';
+      pwdInput.value = password;
+      form.appendChild(pwdInput);
+
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
     } catch (e) {
       showToast(e.message, 'error');
     }

@@ -13,6 +13,7 @@ import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yamljs';
+import { pdf } from 'pdf-to-img';
 import { fileURLToPath } from 'url';
 import { initUserStorage, STORAGE_ROOT } from './storage.js';
 import { db } from './db.js';
@@ -115,7 +116,13 @@ api.post('/auth/register', asyncHandler(async (req, res) => {
     if (existing) return res.status(400).json({ error: 'User exists' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = { id: uuidv4(), username, password: hashedPassword };
+    const user = {
+      id: uuidv4(),
+      username,
+      password: hashedPassword,
+      quota: 53687091200, // 50GB default
+      usedSpace: 0
+    };
     
     db.data.users.push(user);
     await db.write();
@@ -159,7 +166,8 @@ const storage = multer.diskStorage({
     }
   },
   filename: (req, file, cb) => {
-    cb(null, file.originalname);
+    req.fileId = uuidv4();
+    cb(null, req.fileId);
   }
 });
 
@@ -185,7 +193,7 @@ api.post('/upload', authenticateToken, upload.single('file'), asyncHandler(async
     return res.status(413).json({ error: 'Storage quota exceeded' });
   }
 
-  const fileId = uuidv4();
+  const fileId = req.fileId || uuidv4();
   const fileHash = await calculateHash(req.file.path);
 
   // Task 4.1: Generate Thumbnail
@@ -223,6 +231,23 @@ api.post('/upload', authenticateToken, upload.single('file'), asyncHandler(async
       thumbnailUrl = `/api/thumbnails/${fileId}`;
     } catch (err) {
       console.error('Video thumbnail failed:', err);
+    }
+  } else if (req.file.mimetype === 'application/pdf') {
+    // Task 5.2: PDF Thumbnail
+    try {
+      const thumbnailFilename = `${fileId}.webp`;
+      const thumbnailPath = path.join(STORAGE_ROOT, req.user.id, 'thumbnails', thumbnailFilename);
+      
+      const document = await pdf(req.file.path, { scale: 1 });
+      for await (const page of document) {
+        await sharp(page)
+          .resize(300, 300, { fit: 'cover' })
+          .toFile(thumbnailPath);
+        break; // Only thumbnail the first page
+      }
+      thumbnailUrl = `/api/thumbnails/${fileId}`;
+    } catch (err) {
+      console.error('PDF thumbnail generation failed:', err);
     }
   }
 
@@ -497,11 +522,18 @@ api.delete('/files/:id', authenticateToken, asyncHandler(async (req, res) => {
 api.get('/files/:id/content', authenticateToken, asyncHandler(async (req, res) => {
   try {
     await db.read();
-    const file = db.data.files.find(f => f.id === req.params.id && f.ownerId === req.user.id);
+    const file = db.data.files.find(f => 
+      f.id === req.params.id && 
+      (f.ownerId === req.user.id || (f.sharedWith && f.sharedWith.includes(req.user.id)))
+    );
     if (!file) return res.status(404).send('File not found');
 
     if (!fs.existsSync(file.path)) {
       return res.status(404).send('File not found on disk');
+    }
+
+    if (req.query.download === 'true') {
+      return res.download(file.path, file.name);
     }
 
     res.sendFile(file.path, (err) => {
@@ -517,12 +549,24 @@ api.get('/files/:id/content', authenticateToken, asyncHandler(async (req, res) =
 }));
 
 // Task 4.1: Serve Thumbnails
-api.get('/thumbnails/:id', authenticateToken, (req, res) => {
-  const thumbnailPath = path.join(STORAGE_ROOT, req.user.id, 'thumbnails', req.params.id + '.webp');
-  res.sendFile(thumbnailPath, (err) => {
-    if (err) res.sendStatus(404);
-  });
-});
+api.get('/thumbnails/:id', authenticateToken, asyncHandler(async (req, res) => {
+  try {
+    await db.read();
+    const file = db.data.files.find(f => f.id === req.params.id);
+    if (!file) return res.sendStatus(404);
+
+    const hasAccess = file.ownerId === req.user.id || (file.sharedWith && file.sharedWith.includes(req.user.id));
+    if (!hasAccess) return res.sendStatus(403);
+
+    const thumbnailPath = path.join(STORAGE_ROOT, file.ownerId, 'thumbnails', file.id + '.webp');
+    res.sendFile(thumbnailPath, (err) => {
+      if (err) res.sendStatus(404);
+    });
+  } catch (error) {
+    console.error('Thumbnail serve error:', error);
+    res.sendStatus(500);
+  }
+}));
 
 // --- Share Routes (Task 4.2) ---
 
@@ -589,6 +633,25 @@ api.get('/public/shares/:id', asyncHandler(async (req, res) => {
     isPasswordProtected: share.isPasswordProtected,
     id: share.id
   });
+}));
+
+// Public Share Verify Password (No Auth Required)
+api.post('/public/shares/:id/verify', asyncHandler(async (req, res) => {
+  const { password } = req.body;
+  await db.read();
+  const share = db.data.shares.find(s => s.id === req.params.id);
+  if (!share || !share.active) return res.status(404).json({ error: 'Link not found' });
+
+  if (share.expiresAt && new Date() > new Date(share.expiresAt)) return res.status(410).json({ error: 'Link expired' });
+  if (share.maxDownloads && share.currentDownloads >= share.maxDownloads) return res.status(410).json({ error: 'Download limit reached' });
+
+  if (share.isPasswordProtected) {
+    if (!password || !(await bcrypt.compare(password, share.passwordHash))) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+  }
+
+  res.json({ status: 'success' });
 }));
 
 // Public Share Download (No Auth Required)

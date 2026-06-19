@@ -21,6 +21,7 @@ function App() {
   const [editQuotaModal, setEditQuotaModal] = useState(null); // { userId, currentQuota }
   const [inputModal, setInputModal] = useState(null); // { title, label, onConfirm }
   const [shareModal, setShareModal] = useState(null); // { file }
+  const [moveModal, setMoveModal] = useState(null); // { file }
   const [qrCodeLink, setQrCodeLink] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [drawerDragY, setDrawerDragY] = useState(0);
@@ -166,13 +167,13 @@ function App() {
 
   const filteredFiles = files.filter(file => {
     const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFolder = currentFolder ? file.parentId === currentFolder : !file.parentId;
+    const matchesFolder = searchQuery ? true : (currentFolder ? file.parentId === currentFolder : !file.parentId);
     return matchesSearch && matchesFolder;
   });
 
   const filteredFolders = folders.filter(folder => {
     const matchesSearch = folder.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFolder = currentFolder ? folder.parentId === currentFolder : !folder.parentId;
+    const matchesFolder = searchQuery ? true : (currentFolder ? folder.parentId === currentFolder : !folder.parentId);
     return matchesSearch && matchesFolder;
   });
 
@@ -236,26 +237,15 @@ function App() {
     }
   };
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!selectedFile) return;
-    try {
-      const res = await fetch(`/api/files/${selectedFile.id}/content`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error('Download failed');
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = selectedFile.name;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error(err);
-      showToast('Download failed', 'error');
-    }
+    const url = `/api/files/${selectedFile.id}/content?token=${token}&download=true`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = selectedFile.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleShare = async () => {
@@ -305,6 +295,112 @@ function App() {
         } catch (err) {
           console.error(err);
         }
+      }
+    });
+  };
+
+  const handleRename = () => {
+    if (!selectedFile) return;
+    setInputModal({
+      title: 'Rename File',
+      label: 'New Name',
+      defaultValue: selectedFile.name,
+      onConfirm: async (newName) => {
+        try {
+          const res = await fetch(`/api/files/${selectedFile.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ name: newName })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setSelectedFile(data.file);
+            fetchFiles();
+            showToast('File renamed', 'success');
+          } else {
+            showToast('Rename failed', 'error');
+          }
+        } catch (e) {
+          console.error(e);
+          showToast('Rename error', 'error');
+        }
+      }
+    });
+  };
+
+  const handleMove = () => {
+    if (!selectedFile) return;
+    setMoveModal({ file: selectedFile });
+  };
+
+  const executeMove = async (targetFolderId) => {
+    if (!moveModal?.file) return;
+    const parentId = targetFolderId === 'root' ? null : targetFolderId;
+    try {
+      const res = await fetch(`/api/files/${moveModal.file.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ parentId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (selectedFile?.id === moveModal.file.id) {
+          setSelectedFile(data.file);
+        }
+        fetchFiles();
+        showToast('File moved', 'success');
+        setMoveModal(null);
+      } else {
+        showToast('Move failed', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Move error', 'error');
+    }
+  };
+
+  const getFolderPath = (folderId) => {
+    let curr = folderId;
+    const path = [];
+    while (curr) {
+      const folder = folders.find(f => f.id === curr);
+      if (!folder) break;
+      path.unshift(folder.name);
+      curr = folder.parentId;
+    }
+    return '/' + path.join('/');
+  };
+
+  const handleDeleteFolder = async () => {
+    if (!currentFolder) return;
+    const folder = folders.find(f => f.id === currentFolder);
+    if (!folder) return;
+    
+    const hasFiles = files.some(f => f.parentId === currentFolder);
+    const hasFolders = folders.some(f => f.parentId === currentFolder);
+    if (hasFiles || hasFolders) {
+      showToast('Cannot delete a non-empty folder. Please empty it first.', 'error');
+      return;
+    }
+
+    openConfirmModal(`Are you sure you want to delete the folder "${folder.name}"?`, async () => {
+      try {
+        const res = await fetch(`/api/folders/${currentFolder}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const parent = folder.parentId;
+          setCurrentFolder(parent);
+          fetchFolders();
+          showToast('Folder deleted', 'success');
+        } else {
+          const data = await res.json();
+          showToast(data.error || 'Failed to delete folder', 'error');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Error deleting folder', 'error');
       }
     });
   };
@@ -472,6 +568,13 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
               </svg>
             </button>
+            {currentFolder && (
+              <button onClick={handleDeleteFolder} className="text-gray-500 hover:text-red-600" title="Delete Current Folder">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+              </button>
+            )}
             <button onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')} className="text-gray-500 hover:text-blue-600" title="Toggle View">
               {viewMode === 'grid' ? (
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
@@ -580,7 +683,7 @@ function App() {
                 className="w-full rounded-lg mb-4 bg-black aspect-video"
                 poster={`${selectedFile.thumbnail}?token=${token}`}
               >
-                <source src={`/api/files/${selectedFile.id}/content`} type={selectedFile.mimeType} />
+                <source src={`/api/files/${selectedFile.id}/content?token=${token}`} type={selectedFile.mimeType} />
                 Your browser does not support the video tag.
               </video>
             )}
@@ -591,7 +694,7 @@ function App() {
                 <audio 
                   controls 
                   className="w-full"
-                  src={`/api/files/${selectedFile.id}/content`}
+                  src={`/api/files/${selectedFile.id}/content?token=${token}`}
                 >
                   Your browser does not support the audio element.
                 </audio>
@@ -626,6 +729,8 @@ function App() {
               <button onClick={handleDownload} className="bg-blue-600 text-white py-3 rounded-xl font-medium">Download</button>
               <button onClick={handleShare} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">Share</button>
               <button onClick={handleQRCode} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">QR Code</button>
+              <button onClick={handleRename} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">Rename</button>
+              <button onClick={handleMove} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">Move</button>
               <button onClick={handleDelete} className="bg-red-100 text-red-600 py-3 rounded-xl font-medium">Delete</button>
             </div>
           </div>
@@ -666,7 +771,7 @@ function App() {
               setInputModal(null);
             }}>
               <label className="block text-sm font-medium text-gray-700 mb-1">{inputModal.label}</label>
-              <input name="input" className="w-full p-2 border rounded-lg mb-6" autoFocus required />
+              <input name="input" defaultValue={inputModal.defaultValue || ''} className="w-full p-2 border rounded-lg mb-6" autoFocus required />
               <div className="flex justify-end gap-3">
                 <button type="button" onClick={() => setInputModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Confirm</button>
@@ -746,6 +851,33 @@ function App() {
               </form>
             </div>
             <button onClick={() => setShareModal(null)} className="mt-4 w-full text-gray-500 text-sm hover:text-gray-700">Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Move Modal */}
+      {moveModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 shadow-2xl max-w-sm w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Move File</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              executeMove(e.target.folder.value);
+            }}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Select Folder</label>
+              <select name="folder" className="w-full p-2 border rounded-lg mb-6 text-sm bg-white" required>
+                <option value="root">Home (Root)</option>
+                {folders.map(f => (
+                  <option key={f.id} value={f.id}>
+                    {getFolderPath(f.id)}
+                  </option>
+                ))}
+              </select>
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => setMoveModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Move</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
