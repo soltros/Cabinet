@@ -505,34 +505,63 @@ function App() {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <form onSubmit={handleAuth} className="bg-white p-8 rounded-xl shadow-lg max-w-sm w-full">
-          <div className="flex flex-col items-center mb-6">
-            <img src={cabinetIcon} alt="Logo" className="w-12 h-12 mb-2" />
-            <h1 className="text-2xl font-bold text-blue-600">Cabinet</h1>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-900 flex items-center justify-center p-4 relative overflow-hidden animate-fade-in">
+        {/* Decorative Background Glows */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        
+        <form 
+          onSubmit={handleAuth} 
+          className="bg-slate-900/60 backdrop-blur-xl p-8 rounded-2xl border border-slate-800 shadow-2xl max-w-md w-full relative z-10 transition-all duration-300 hover:border-slate-700/80"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-14 h-14 bg-blue-600/10 rounded-2xl flex items-center justify-center mb-3 border border-blue-500/20">
+              <img src={cabinetIcon} alt="Cabinet Logo" className="w-8 h-8 animate-pulse" />
+            </div>
+            <h1 className="text-3xl font-extrabold text-white tracking-tight">Cabinet</h1>
+            <p className="text-slate-400 text-sm mt-1.5 text-center">
+              {isSignUp ? 'Register a standard 50GB file locker' : 'Sign in to access your secure files'}
+            </p>
           </div>
-          <input
-            type="text"
-            placeholder="Username"
-            className="w-full mb-4 p-3 border rounded-lg"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            className="w-full mb-6 p-3 border rounded-lg"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-          />
-          <button type="submit" className="w-full bg-blue-600 text-white p-3 rounded-lg font-bold hover:bg-blue-700">
-            {isSignUp ? 'Sign Up' : 'Login'}
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1.5 ml-1">Username</label>
+              <input
+                type="text"
+                placeholder="Username"
+                className="w-full p-3 bg-slate-950/80 border border-slate-800 text-white rounded-xl placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1.5 ml-1">Password</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                className="w-full p-3 bg-slate-950/80 border border-slate-800 text-white rounded-xl placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            className="w-full mt-8 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white p-3.5 rounded-xl font-bold transition-colors duration-200 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+          >
+            {isSignUp ? 'Create Account' : 'Sign In'}
           </button>
+          
           <button 
             type="button" 
             onClick={() => setIsSignUp(!isSignUp)}
-            className="w-full mt-4 text-sm text-blue-600 hover:underline">
-            {isSignUp ? 'Already have an account? Login' : 'Need an account? Sign Up'}
+            className="w-full mt-5 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors hover:underline"
+          >
+            {isSignUp ? 'Already have an account? Sign in' : 'Need an account? Register now'}
           </button>
         </form>
       </div>
