@@ -2,6 +2,16 @@
 
 Cabinet is a lean, self-hosted file locker. It focuses on a fast, mobile-friendly web experience, secure sharing, and high-speed uploads without the bloat of background sync engines.
 
+## Screenshots
+
+Cabinet is optimized for mobile screens and can be added to your home screen as a Progressive Web App (PWA):
+
+### Mobile List View
+![Cabinet Mobile List View](screenshots/screenshot-1.png)
+
+### Mobile Grid View
+![Cabinet Mobile Grid View](screenshots/screenshot-2.png)
+
 ## Features
 
 * **Mobile-First UI**: Responsive React frontend with custom bottom-sheet action drawers.
