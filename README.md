@@ -44,12 +44,12 @@ Set these variables in your container run config or docker-compose file:
 
 Start the container and map `./user_data` to host storage:
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 To run a clean build without cache:
 ```bash
-docker-compose build --no-cache && docker-compose up -d
+docker compose build --no-cache && docker compose up -d
 ```
 
 ### Reverse Proxy & SSL
