@@ -1,55 +1,82 @@
 # Cabinet
 
-Cabinet is a lean, high-performance "File Locker" designed for self-hosting. It prioritizes a fast web experience, mobile-first design, and simple file management without the bloat of complex syncing engines.
+Cabinet is a lean, self-hosted file locker. It focuses on a fast, mobile-friendly web experience, secure sharing, and high-speed uploads without the bloat of background sync engines.
 
 ## Features
 
-*   **Mobile-First UI**: Responsive React frontend with Tailwind CSS.
-*   **Drag & Drop Uploads**: Fast uploads with real-time progress bars.
-*   **Media Previews**: Auto-generated thumbnails for images and videos, plus PDF previews.
-*   **Secure Sharing**: Generate public links with password protection, expiration dates, and download limits.
-*   **Single Container**: Entire stack (Frontend + Backend + DB) runs in one Docker container.
-*   **Configurable Limits**: Set maximum file upload size via environment variables.
+* **Mobile-First UI**: Responsive React frontend with custom bottom-sheet action drawers.
+* **On-the-Fly Encryption**: All files are encrypted at rest using AES-256-CTR. Decryption is streamed on-the-fly, supporting random access range requests (like video scrubbing) with zero memory overhead.
+* **Smart Previews**: Auto-generated thumbnails for images, videos, and PDFs.
+* **Public Sharing**: Generate short link hashes with optional password protection, download count limits, and expiration dates.
+* **Single Container**: Frontend, backend, and JSON database run together in one lightweight Docker image.
 
-## Quick Start
+## Setup & Running
 
-### Prerequisites
-*   Docker
+### Environment Variables
+Set these variables in your container run config or docker-compose file:
+* `JWT_SECRET`: Secret key for session authentication.
+* `ENCRYPTION_KEY`: Secret key used to encrypt/decrypt physical files at rest.
+* `STORAGE_PATH`: Path to the persistent user storage folder (defaults to `/app/users`).
+* `MAX_UPLOAD_SIZE`: Maximum single file size allowed for upload in bytes.
 
-### Build & Run
+### Quick Start
 
-1.  **Build the Image**
-    ```bash
-    docker build -t cabinet .
-    ```
+1. **Build the image**
+   ```bash
+   docker build -t cabinet .
+   ```
 
-2.  **Run the Container**
-    ```bash
-    docker run -d -p 4444:4444 -v $(pwd)/user_data:/app/users cabinet
-    ```
+2. **Run the container**
+   ```bash
+   docker run -d \
+     -p 4444:4444 \
+     -e ENCRYPTION_KEY="your-secure-encryption-key" \
+     -e JWT_SECRET="your-secure-jwt-secret" \
+     -v $(pwd)/user_data:/app/users \
+     cabinet
+   ```
 
-3.  **Access Cabinet**
-    *   Open `http://localhost:4444` in your browser.
-    *   API Documentation: `http://localhost:4444/api/docs`
+3. **Access**
+   * Web UI: `http://localhost:4444`
+   * Swagger Docs: `http://localhost:4444/api/docs`
 
 ### Using Docker Compose
 
-1.  **Run with Compose**
-    ```bash
-    docker-compose up -d --build
-    ```
+Start the container and map `./user_data` to host storage:
+```bash
+docker-compose up -d --build
+```
 
-2.  **Clean Rebuild (No Cache)**
-    To ensure a completely fresh build without using cached layers:
-    ```bash
-    docker-compose build --no-cache && docker-compose up -d
-    ```
+To run a clean build without cache:
+```bash
+docker-compose build --no-cache && docker-compose up -d
+```
 
 ### Reverse Proxy & SSL
 
-Cabinet is designed to work behind a reverse proxy (like Traefik, Nginx, or Caddy) for SSL termination. The application listens on HTTP port `4444` inside the container. HSTS and strict HTTPS enforcement are disabled in the application to allow the proxy to handle security headers.
+Cabinet is designed to run behind a reverse proxy (like Nginx, Traefik, or Caddy) for SSL termination. The container listens on port `4444`. HSTS and security header enforcements are disabled in Node to let your proxy handle routing and security configuration.
+
+---
+
+## Backups
+
+Because Cabinet packages all configurations and files under a single mapping directory, complete backups are easy. Simply archive the `./user_data` folder on the host:
+
+```bash
+tar -czf cabinet-backup-$(date +%F).tar.gz ./user_data
+```
+
+---
 
 ## Development
 
-*   **Backend**: Located in `backend/`. Run `npm run dev` inside.
-*   **Frontend**: Located in `frontend/`. Run `npm run dev` inside.
+1. **Install Dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Run the Dev Environment**
+   This launches the Express backend API and Vite server concurrently:
+   ```bash
+   npm run dev
+   ```
