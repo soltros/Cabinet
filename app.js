@@ -18,6 +18,7 @@ import { fileURLToPath } from 'url';
 import { initUserStorage, STORAGE_ROOT } from './storage.js';
 import { db } from './db.js';
 import { authenticateToken } from './auth.js';
+import { deriveKey, encryptFile, createDecryptionStream } from './crypto.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,13 +34,31 @@ const originalLog = console.log;
 const originalError = console.error;
 
 console.log = (...args) => {
-  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+  const msg = args.map(arg => {
+    if (typeof arg === 'object') {
+      try {
+        return JSON.stringify(arg);
+      } catch (e) {
+        return '[Unserializable Object]';
+      }
+    }
+    return String(arg);
+  }).join(' ');
   logStream.write(`[${new Date().toISOString()}] [INFO] ${msg}\n`);
   originalLog.apply(console, args);
 };
 
 console.error = (...args) => {
-  const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+  const msg = args.map(arg => {
+    if (typeof arg === 'object') {
+      try {
+        return JSON.stringify(arg);
+      } catch (e) {
+        return '[Unserializable Object]';
+      }
+    }
+    return String(arg);
+  }).join(' ');
   logStream.write(`[${new Date().toISOString()}] [ERROR] ${msg}\n`);
   originalError.apply(console, args);
 };
@@ -110,6 +129,12 @@ api.post('/auth/register', asyncHandler(async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
+
+    // Input Validation: Validate username format
+    const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/;
+    if (!usernameRegex.test(username)) {
+      return res.status(400).json({ error: 'Username must be 3-20 characters long and contain only letters, numbers, underscores, and dashes.' });
+    }
 
     await db.read();
     const existing = db.data.users.find(u => u.username === username);
@@ -251,6 +276,18 @@ api.post('/upload', authenticateToken, upload.single('file'), asyncHandler(async
     }
   }
 
+  // Server-Side Encryption
+  try {
+    const encryptedPath = req.file.path + '.enc';
+    const key = deriveKey(process.env.ENCRYPTION_KEY || 'dev-secret-key');
+    await encryptFile(req.file.path, encryptedPath, key);
+    await fs.promises.unlink(req.file.path);
+    await fs.promises.rename(encryptedPath, req.file.path);
+  } catch (err) {
+    console.error('File encryption failed:', err);
+    return res.status(500).json({ error: 'File encryption failed' });
+  }
+
   const fileData = {
     id: fileId,
     ownerId: req.user.id,
@@ -383,6 +420,12 @@ api.post('/users', authenticateToken, isAdmin, asyncHandler(async (req, res) => 
   const { username, password, quota } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
 
+  // Input Validation: Validate username format
+  const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/;
+  if (!usernameRegex.test(username)) {
+    return res.status(400).json({ error: 'Username must be 3-20 characters long and contain only letters, numbers, underscores, and dashes.' });
+  }
+
   await db.read();
   if (db.data.users.find(u => u.username === username)) {
     return res.status(400).json({ error: 'User exists' });
@@ -443,6 +486,18 @@ api.delete('/users/:id', authenticateToken, isAdmin, asyncHandler(async (req, re
     console.error('Failed to cleanup user storage:', e);
   }
 
+  // Database Integrity: Remove user's files, folders, and shares
+  db.data.files = db.data.files.filter(f => f.ownerId !== req.params.id);
+  db.data.folders = db.data.folders.filter(f => f.ownerId !== req.params.id);
+  db.data.shares = db.data.shares.filter(s => s.creatorId !== req.params.id);
+
+  // Database Integrity: Remove user from other files' sharedWith lists
+  db.data.files.forEach(f => {
+    if (f.sharedWith) {
+      f.sharedWith = f.sharedWith.filter(uid => uid !== req.params.id);
+    }
+  });
+
   db.data.users.splice(index, 1);
   await db.write();
   res.json({ status: 'success' });
@@ -453,15 +508,35 @@ api.get('/admin/backup/db', authenticateToken, isAdmin, (req, res) => {
   res.download(dbPath, `cabinet-backup-${new Date().toISOString().split('T')[0]}.json`);
 });
 
-api.get('/admin/logs', authenticateToken, isAdmin, (req, res) => {
+api.get('/admin/logs', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   const logPath = path.join(STORAGE_ROOT, 'cabinet.log');
   if (!fs.existsSync(logPath)) return res.status(404).send('No logs available');
 
   if (req.query.download === 'true') {
     return res.download(logPath, `cabinet-logs-${new Date().toISOString()}.log`);
   }
-  res.sendFile(logPath);
-});
+
+  try {
+    const stats = await fs.promises.stat(logPath);
+    const limit = 50000; // ~50KB limit to avoid browser memory freeze
+    const start = Math.max(0, stats.size - limit);
+    const length = stats.size - start;
+
+    const fd = await fs.promises.open(logPath, 'r');
+    const buffer = Buffer.alloc(length);
+    await fd.read(buffer, 0, length, start);
+    await fd.close();
+
+    let logsText = buffer.toString('utf8');
+    if (start > 0) {
+      logsText = `... [Truncated ${Math.round(start / 1024)} KB of older logs] ...\n` + logsText;
+    }
+    res.send(logsText);
+  } catch (err) {
+    console.error('Error reading logs:', err);
+    res.status(500).send('Error reading logs');
+  }
+}));
 
 api.post('/admin/scrub', authenticateToken, isAdmin, asyncHandler(async (req, res) => {
   await db.read();
@@ -505,6 +580,9 @@ api.delete('/files/:id', authenticateToken, asyncHandler(async (req, res) => {
 
     db.data.files.splice(fileIndex, 1);
     
+    // Clean up public share links associated with the deleted file
+    db.data.shares = db.data.shares.filter(s => s.fileId !== req.params.id);
+    
     // Update User Usage
     const user = db.data.users.find(u => u.id === req.user.id);
     if (user) {
@@ -532,16 +610,46 @@ api.get('/files/:id/content', authenticateToken, asyncHandler(async (req, res) =
       return res.status(404).send('File not found on disk');
     }
 
-    if (req.query.download === 'true') {
-      return res.download(file.path, file.name);
-    }
+    const stat = await fs.promises.stat(file.path);
+    const IV_SIZE = 16;
+    const totalPlaintextSize = Math.max(0, stat.size - IV_SIZE);
+    const key = deriveKey(process.env.ENCRYPTION_KEY || 'dev-secret-key');
+    const range = req.headers.range;
 
-    res.sendFile(file.path, (err) => {
-      if (err) {
-        console.error('Error sending file:', err);
-        if (!res.headersSent) res.status(500).send('Error sending file');
-      }
-    });
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : totalPlaintextSize - 1;
+      
+      const chunksize = (end - start) + 1;
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${totalPlaintextSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': file.mimeType || 'application/octet-stream',
+        'Content-Disposition': req.query.download === 'true' ? `attachment; filename="${encodeURIComponent(file.name)}"` : 'inline'
+      });
+      
+      const stream = createDecryptionStream(file.path, key, { start, end });
+      stream.on('error', (err) => {
+        console.error('Decryption stream range error:', err);
+        if (!res.headersSent) res.sendStatus(500);
+      });
+      stream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': totalPlaintextSize,
+        'Content-Type': file.mimeType || 'application/octet-stream',
+        'Content-Disposition': req.query.download === 'true' ? `attachment; filename="${encodeURIComponent(file.name)}"` : 'inline'
+      });
+      
+      const stream = createDecryptionStream(file.path, key);
+      stream.on('error', (err) => {
+        console.error('Decryption stream error:', err);
+        if (!res.headersSent) res.sendStatus(500);
+      });
+      stream.pipe(res);
+    }
   } catch (error) {
     console.error('Content Error:', error);
     res.status(500).send('Internal Server Error');
@@ -677,7 +785,28 @@ api.post('/public/shares/:id/download', asyncHandler(async (req, res) => {
   share.currentDownloads = (share.currentDownloads || 0) + 1;
   await db.write();
 
-  res.download(file.path, file.name);
+  try {
+    const stat = await fs.promises.stat(file.path);
+    const IV_SIZE = 16;
+    const totalPlaintextSize = Math.max(0, stat.size - IV_SIZE);
+    const key = deriveKey(process.env.ENCRYPTION_KEY || 'dev-secret-key');
+
+    res.writeHead(200, {
+      'Content-Length': totalPlaintextSize,
+      'Content-Type': file.mimeType || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
+    });
+
+    const stream = createDecryptionStream(file.path, key);
+    stream.on('error', (err) => {
+      console.error('Public download stream error:', err);
+      if (!res.headersSent) res.sendStatus(500);
+    });
+    stream.pipe(res);
+  } catch (error) {
+    console.error('Public download error:', error);
+    res.status(500).send('Internal Server Error');
+  }
 }));
 
 // SPA Fallback

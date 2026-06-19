@@ -204,11 +204,17 @@ function App() {
           }, 3000); 
         } else {
           setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' } : u));
+          setTimeout(() => {
+            setUploads(prev => prev.filter(u => u.id !== uploadId));
+          }, 6000);
         }
       };
 
       xhr.onerror = () => {
         setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' } : u));
+        setTimeout(() => {
+          setUploads(prev => prev.filter(u => u.id !== uploadId));
+        }, 6000);
       };
 
       xhr.open('POST', '/api/upload');
@@ -723,14 +729,18 @@ function App() {
             )}
 
             <a href={`/api/files/${selectedFile.id}/content?token=${token}`} target="_blank" rel="noopener noreferrer" className="hover:underline block">
-              <h2 className="text-lg font-bold text-gray-900 mb-2 truncate">{selectedFile.name}</h2>
+              <h2 className="text-lg font-bold text-gray-900 mb-1 truncate">{selectedFile.name}</h2>
             </a>
+            <p className="text-xs text-gray-400 mb-2 truncate">Location: {selectedFile.parentId ? getFolderPath(selectedFile.parentId) : 'Home'}</p>
             <div className="grid grid-cols-2 gap-4 mt-6">
               <button onClick={handleDownload} className="bg-blue-600 text-white py-3 rounded-xl font-medium">Download</button>
               <button onClick={handleShare} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">Share</button>
               <button onClick={handleQRCode} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">QR Code</button>
               <button onClick={handleRename} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">Rename</button>
               <button onClick={handleMove} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">Move</button>
+              {selectedFile.parentId !== currentFolder && (
+                <button onClick={() => { setCurrentFolder(selectedFile.parentId); setSelectedFile(null); setSearchQuery(''); }} className="bg-gray-100 text-gray-700 py-3 rounded-xl font-medium">Go to Folder</button>
+              )}
               <button onClick={handleDelete} className="bg-red-100 text-red-600 py-3 rounded-xl font-medium">Delete</button>
             </div>
           </div>

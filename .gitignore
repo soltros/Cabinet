@@ -1,0 +1,6 @@
+node_modules/
+user_data/
+*.log
+.DS_Store
+dist/assets/index-*.js
+dist/assets/index-*.css
