@@ -18,7 +18,7 @@ Cabinet is optimized for mobile screens and can be added to your home screen as 
 * **On-the-Fly Encryption**: All files are encrypted at rest using AES-256-CTR. Decryption is streamed on-the-fly, supporting random access range requests (like video scrubbing) with zero memory overhead.
 * **Smart Previews**: Auto-generated thumbnails for images, videos, and PDFs.
 * **Public Sharing**: Generate short link hashes with optional password protection, download count limits, and expiration dates.
-* **Single Container**: Frontend, backend, and JSON database run together in one lightweight Docker image.
+* **Single Container**: Frontend, modular Express backend, and SQLite database run together in one lightweight Docker image.
 
 ## Setup & Running
 
