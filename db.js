@@ -1,64 +1,82 @@
-import { Low } from 'lowdb';
-import { JSONFile } from 'lowdb/node';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
 import path from 'path';
 import fs from 'fs/promises';
 import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
 import { STORAGE_ROOT, initUserStorage } from './storage.js';
+import logger from './logger.js';
 
-// Initialize DB in the persistent storage volume
 await fs.mkdir(STORAGE_ROOT, { recursive: true });
-const file = path.join(STORAGE_ROOT, 'database.json');
-const adapter = new JSONFile(file);
+const file = path.join(STORAGE_ROOT, 'database.sqlite');
 
-console.log(`[DB] Loading database from: ${file}`);
+logger.info(`[DB] Loading database from: ${file}`);
 
-// Default schema
-const defaultData = { files: [], shares: [], users: [], folders: [] };
-const db = new Low(adapter, defaultData);
+const db = await open({
+  filename: file,
+  driver: sqlite3.Database
+});
 
-// Read data or initialize with defaults
-try {
-  await db.read();
-} catch (err) {
-  console.error('[DB] Failed to read database:', err);
-  // Backup the corrupt file if it exists
-  const backupPath = `${file}.corrupt-${Date.now()}`;
-  try {
-    await fs.copyFile(file, backupPath);
-    console.log(`[DB] Corrupt database backed up to ${backupPath}`);
-  } catch (e) {
-    console.error('[DB] Failed to backup corrupt database:', e);
-  }
-}
+await db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    quota INTEGER NOT NULL,
+    usedSpace INTEGER NOT NULL DEFAULT 0,
+    role TEXT NOT NULL DEFAULT 'user'
+  );
 
-// Ensure schema integrity (in case of partial data or empty object)
-db.data ||= { ...defaultData };
-db.data.files ||= [];
-db.data.shares ||= [];
-db.data.users ||= [];
-db.data.folders ||= [];
+  CREATE TABLE IF NOT EXISTS files (
+    id TEXT PRIMARY KEY,
+    ownerId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    extension TEXT,
+    mimeType TEXT,
+    size INTEGER NOT NULL,
+    hash TEXT,
+    path TEXT NOT NULL,
+    parentId TEXT,
+    thumbnail TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    FOREIGN KEY(ownerId) REFERENCES users(id)
+  );
 
-// Static Admin ID to prevent data loss on DB reset
-const ADMIN_ID = '00000000-0000-0000-0000-000000000000';
+  CREATE TABLE IF NOT EXISTS folders (
+    id TEXT PRIMARY KEY,
+    ownerId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    parentId TEXT,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY(ownerId) REFERENCES users(id)
+  );
 
-// Seed Default Admin
-if (!db.data.users.find(u => u.username === 'admin')) {
+  CREATE TABLE IF NOT EXISTS shares (
+    id TEXT PRIMARY KEY,
+    fileId TEXT NOT NULL,
+    creatorId TEXT NOT NULL,
+    password TEXT,
+    expiresAt TEXT,
+    downloadLimit INTEGER,
+    downloads INTEGER DEFAULT 0,
+    active INTEGER DEFAULT 1,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY(fileId) REFERENCES files(id),
+    FOREIGN KEY(creatorId) REFERENCES users(id)
+  );
+`);
+
+// Seed Admin
+const adminUser = await db.get('SELECT id FROM users WHERE username = ?', ['admin']);
+if (!adminUser) {
   const hashedPassword = await bcrypt.hash('admin123', 10);
-  const userId = ADMIN_ID;
-  db.data.users.push({
-    id: userId,
-    username: 'admin',
-    password: hashedPassword,
-    quota: 50 * 1024 * 1024 * 1024, // 50GB
-    usedSpace: 0
-  });
-  await initUserStorage(userId);
-  console.log('Default admin user created: admin / admin123');
+  const ADMIN_ID = '00000000-0000-0000-0000-000000000000';
+  await db.run(
+    'INSERT INTO users (id, username, password, quota, usedSpace, role) VALUES (?, ?, ?, ?, ?, ?)',
+    [ADMIN_ID, 'admin', hashedPassword, 50 * 1024 * 1024 * 1024, 0, 'admin']
+  );
+  await initUserStorage(ADMIN_ID);
+  logger.info('Default admin user created: admin / admin123');
 }
-
-await db.write();
-
-console.log(`[DB] Database loaded. Users: ${db.data.users.length}, Files: ${db.data.files.length}`);
 
 export { db };
