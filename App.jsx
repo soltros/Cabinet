@@ -184,49 +184,55 @@ function App() {
   });
 
   // Upload Logic
-  const uploadFiles = (filesToUpload) => {
-    Array.from(filesToUpload).forEach(file => {
-      const uploadId = Math.random().toString(36).substr(2, 9);
-      setUploads(prev => [...prev, { id: uploadId, name: file.name, progress: 0, status: 'uploading' }]);
+  const uploadOne = (file) => new Promise((resolve) => {
+    const uploadId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+    setUploads(prev => [...prev, { id: uploadId, name: file.name, progress: 0, status: 'uploading' }]);
 
-      const xhr = new XMLHttpRequest();
-      const formData = new FormData();
-      formData.append('file', file);
-      if (currentFolder) formData.append('parentId', currentFolder);
+    const xhr = new XMLHttpRequest();
+    const formData = new FormData();
+    formData.append('file', file);
+    if (currentFolder) formData.append('parentId', currentFolder);
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, progress: percent } : u));
-        }
-      };
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      const percent = Math.round((event.loaded / event.total) * 100);
+      setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, progress: percent } : u));
+    };
 
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'completed', progress: 100 } : u));
-          fetchFiles();
-          setTimeout(() => {
-            setUploads(prev => prev.filter(u => u.id !== uploadId));
-          }, 3000); 
-        } else {
-          setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' } : u));
-          setTimeout(() => {
-            setUploads(prev => prev.filter(u => u.id !== uploadId));
-          }, 6000);
-        }
-      };
+    const finish = (status) => {
+      setUploads(prev => prev.map(u =>
+        u.id === uploadId
+          ? { ...u, status, progress: status === 'completed' ? 100 : u.progress }
+          : u
+      ));
+      setTimeout(() => {
+        setUploads(prev => prev.filter(u => u.id !== uploadId));
+      }, status === 'completed' ? 3000 : 6000);
+      resolve(status === 'completed');
+    };
 
-      xhr.onerror = () => {
-        setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' } : u));
-        setTimeout(() => {
-          setUploads(prev => prev.filter(u => u.id !== uploadId));
-        }, 6000);
-      };
+    xhr.onload = () => finish(xhr.status >= 200 && xhr.status < 300 ? 'completed' : 'error');
+    xhr.onerror = () => finish('error');
+    xhr.open('POST', '/api/files');
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
+  });
 
-      xhr.open('POST', '/api/files');
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.send(formData);
-    });
+  const uploadFiles = async (filesToUpload) => {
+    const queue = Array.from(filesToUpload);
+    const workerCount = Math.min(3, queue.length);
+    let cursor = 0;
+    let uploadedAny = false;
+
+    const worker = async () => {
+      while (cursor < queue.length) {
+        const index = cursor++;
+        uploadedAny = (await uploadOne(queue[index])) || uploadedAny;
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, worker));
+    if (uploadedAny) await fetchFiles();
   };
 
   const handleDragOver = (e) => {
@@ -716,7 +722,7 @@ function App() {
             ))}
           </div>
 
-          <FileGrid files={filteredFiles} folders={filteredFolders} onFileClick={setSelectedFile} onFolderClick={setCurrentFolder} token={token} viewMode={viewMode} />
+          <FileGrid files={filteredFiles} folders={filteredFolders} onFileClick={setSelectedFile} onFolderClick={setCurrentFolder} viewMode={viewMode} />
         </main>
       )}
 
@@ -739,9 +745,9 @@ function App() {
             {/* Image Viewer */}
             {selectedFile.mimeType.startsWith('image/') && (
               <div className="w-full rounded-lg mb-4 bg-gray-100 overflow-hidden">
-                <a href={`/api/files/${selectedFile.id}/content?token=${token}`} target="_blank" rel="noopener noreferrer">
+                <a href={`/api/files/${selectedFile.id}/content`} target="_blank" rel="noopener noreferrer">
                   <img 
-                    src={`/api/files/${selectedFile.id}/content?token=${token}`} 
+                    src={`/api/files/${selectedFile.id}/content`} 
                     alt={selectedFile.name}
                     className="w-full h-auto max-h-[60vh] object-contain mx-auto" 
                   />
@@ -754,9 +760,9 @@ function App() {
               <video 
                 controls 
                 className="w-full rounded-lg mb-4 bg-black aspect-video"
-                poster={`${selectedFile.thumbnail}?token=${token}`}
+                poster={selectedFile.thumbnail || undefined}
               >
-                <source src={`/api/files/${selectedFile.id}/content?token=${token}`} type={selectedFile.mimeType} />
+                <source src={`/api/files/${selectedFile.id}/content`} type={selectedFile.mimeType} />
                 Your browser does not support the video tag.
               </video>
             )}
@@ -767,7 +773,7 @@ function App() {
                 <audio 
                   controls 
                   className="w-full"
-                  src={`/api/files/${selectedFile.id}/content?token=${token}`}
+                  src={`/api/files/${selectedFile.id}/content`}
                 >
                   Your browser does not support the audio element.
                 </audio>
@@ -786,7 +792,7 @@ function App() {
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
                     {selectedFile.thumbnail ? (
-                      <img src={`${selectedFile.thumbnail}?token=${token}`} className="w-full h-full object-cover opacity-50 blur-sm" />
+                      <img src={selectedFile.thumbnail} alt={`${selectedFile.name} preview`} className="w-full h-full object-cover opacity-50 blur-sm" />
                     ) : (
                       <span className="text-gray-500 font-medium animate-pulse">Loading PDF...</span>
                     )}
@@ -795,7 +801,7 @@ function App() {
               </div>
             )}
 
-            <a href={`/api/files/${selectedFile.id}/content?token=${token}`} target="_blank" rel="noopener noreferrer" className="hover:underline block">
+            <a href={`/api/files/${selectedFile.id}/content`} target="_blank" rel="noopener noreferrer" className="hover:underline block">
               <h2 className="text-lg font-bold text-gray-900 mb-1 truncate">{selectedFile.name}</h2>
             </a>
             <p className="text-xs text-gray-400 mb-2 truncate">Location: {selectedFile.parentId ? getFolderPath(selectedFile.parentId) : 'Home'}</p>
