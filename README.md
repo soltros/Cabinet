@@ -23,20 +23,110 @@ Cabinet is optimized for mobile screens and can be added to your home screen as 
 ## Setup & Running
 
 ### Environment Variables
-Cabinet now fails fast when required security configuration is missing.
 
-* `JWT_SECRET`: Required. At least 32 characters. Generate one with `openssl rand -hex 32`.
-* `ENCRYPTION_KEY`: Required. At least 32 characters. New installs should use a full 32-byte random value such as `openssl rand -hex 32`. Existing non-hex secrets remain supported so legacy files stay decryptable. Keep this key backed up; losing it makes stored files unreadable.
-* `ADMIN_PASSWORD`: Required. At least 12 characters. On a fresh install this is used for the bootstrap administrator. Upgraded installs that still use the historical `admin123` password are automatically rotated to this value.
-* `ADMIN_USERNAME`: Optional bootstrap administrator username. Defaults to `admin`.
-* `ALLOW_REGISTRATION`: Optional. Defaults to `false`. Set to `true` only if open registration is intended.
-* `REGISTRATION_CODE`: Optional invite code. When set, registration requires the matching code.
-* `STORAGE_PATH`: Persistent storage directory. Defaults to `/app/users` in the container.
-* `MAX_UPLOAD_SIZE`: Maximum single-file upload size in bytes.
-* `TRUST_PROXY`: Set to `true` when Cabinet is behind a trusted reverse proxy and IP-aware rate limiting should honor the proxy address.
-* `COOKIE_SECURE`: Defaults to `true` in production. Set to `false` only for an intentional plain-HTTP local/LAN deployment; HTTPS deployments should keep it enabled.
+Cabinet requires a few security settings before it will start. Docker Compose reads these values from a file named `.env` in the same directory as `docker-compose.yml`.
 
-Copy `.env.example` to `.env` and replace every placeholder before using Docker Compose.
+The four settings every new installation should understand are:
+
+* `JWT_SECRET`: **Required.** Used to sign login/session tokens. It must be at least 32 characters long. Generate a strong random value with:
+  ```bash
+  openssl rand -hex 32
+  ```
+  This produces a 64-character hexadecimal secret. Keep it private. Changing it later will invalidate existing login sessions, but it will not affect stored files.
+
+* `ENCRYPTION_KEY`: **Required.** Used to encrypt files stored by Cabinet. It must be at least 32 characters long. For a new installation, generate a full 32-byte random key with:
+  ```bash
+  openssl rand -hex 32
+  ```
+  **Back this value up somewhere safe. Do not casually change or regenerate it after you begin storing files.** Cabinet needs the same key to decrypt existing files. Losing the encryption key can make stored files unreadable.
+
+* `ADMIN_PASSWORD`: **Required.** Password for the bootstrap administrator account created on first startup. It must be at least 12 characters long. Use a strong password that you choose yourself. For example:
+  ```dotenv
+  ADMIN_PASSWORD=replace-this-with-a-long-unique-password
+  ```
+  Cabinet does not ship with a public default administrator password.
+
+* `ADMIN_USERNAME`: Optional. Username for the bootstrap administrator account. If omitted, Cabinet uses `admin`.
+  ```dotenv
+  ADMIN_USERNAME=admin
+  ```
+
+Other supported settings are:
+
+* `ALLOW_REGISTRATION`: Defaults to `false`. Set to `true` only if you intentionally want users to be able to register.
+* `REGISTRATION_CODE`: Optional registration/invite code. When set, new registrations must provide the matching code.
+* `STORAGE_PATH`: Storage path inside the container. The supplied Compose file uses `/app/users`; normally you should leave this unchanged.
+* `MAX_UPLOAD_SIZE`: Maximum upload size in bytes. The supplied Compose file defaults to 500 MiB.
+* `TRUST_PROXY`: Defaults to `false`. Set to `true` when Cabinet is behind a trusted reverse proxy such as Traefik, Caddy, or Nginx and you want Cabinet to trust the forwarded client IP.
+* `COOKIE_SECURE`: Defaults to `true` for production. Keep this enabled when Cabinet is accessed over HTTPS. Set it to `false` only for an intentional plain-HTTP local/LAN deployment.
+
+#### Create your `.env` file
+
+From the directory containing `docker-compose.yml`, copy the example file:
+
+```bash
+cp .env.example .env
+```
+
+Generate two independent random secrets:
+
+```bash
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+Use one output for `JWT_SECRET` and the other for `ENCRYPTION_KEY`. Do **not** use the same value for both.
+
+Then edit `.env` so it looks similar to this:
+
+```dotenv
+JWT_SECRET=put-the-first-generated-secret-here
+ENCRYPTION_KEY=put-the-second-generated-secret-here
+ADMIN_PASSWORD=choose-a-long-unique-admin-password
+ADMIN_USERNAME=admin
+
+ALLOW_REGISTRATION=false
+REGISTRATION_CODE=
+TRUST_PROXY=false
+COOKIE_SECURE=true
+```
+
+Do not commit your real `.env` file to Git. Cabinet's `.gitignore` excludes it by default.
+
+#### First startup with Docker Compose
+
+Once `.env` is configured:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Watch the startup logs if you want to confirm initialization:
+
+```bash
+docker compose logs -f cabinet
+```
+
+On the first successful startup, Cabinet creates the administrator account using `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
+
+After Cabinet is running, open:
+
+* Web UI: `http://localhost:4444`
+* API documentation: `http://localhost:4444/api/docs`
+
+For an internet-facing deployment, put Cabinet behind HTTPS before signing in and keep `COOKIE_SECURE=true`.
+
+#### Updating Cabinet later
+
+The Compose file uses `ghcr.io/soltros/cabinet:latest` and `pull_policy: always`. To update to the newest published image:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Keep your existing `.env` file and `user_data` directory when updating. In particular, keep the same `ENCRYPTION_KEY`.
 
 ### Quick Start
 
