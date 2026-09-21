@@ -38,18 +38,40 @@ jobs:
 
       - name: Smoke-test container
         run: |
-          docker run -d --rm --name cabinet-smoke \
+          set -euo pipefail
+          cleanup() {
+            docker logs cabinet-smoke 2>/dev/null || true
+            docker rm -f cabinet-smoke 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          docker run -d --name cabinet-smoke \
             -p 4444:4444 \
             -e JWT_SECRET=0123456789abcdef0123456789abcdef \
             -e ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
             -e ADMIN_PASSWORD=change-me-for-ci-only \
+            -e COOKIE_SECURE=false \
             cabinet-smoke
+
+          healthy=false
           for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:4444/health; then break; fi
+            if curl -fsS http://127.0.0.1:4444/health >/dev/null; then
+              healthy=true
+              break
+            fi
+            if ! docker inspect -f '{{.State.Running}}' cabinet-smoke 2>/dev/null | grep -q true; then
+              echo "Container exited before becoming healthy"
+              exit 1
+            fi
             sleep 1
           done
+
+          if [ "$healthy" != true ]; then
+            echo "Container never became healthy"
+            exit 1
+          fi
+
           curl -fsS http://127.0.0.1:4444/api/docs >/dev/null
-          docker stop cabinet-smoke
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
