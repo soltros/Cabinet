@@ -15,7 +15,7 @@ Cabinet is optimized for mobile screens and can be added to your home screen as 
 ## Features
 
 * **Mobile-First UI**: Responsive React frontend with custom bottom-sheet action drawers.
-* **On-the-Fly Encryption**: All files are encrypted at rest using AES-256-CTR. Decryption is streamed on-the-fly, supporting random access range requests (like video scrubbing) with zero memory overhead.
+* **Authenticated At-Rest Encryption**: New files use chunked AES-256-GCM so tampering is detected while range requests remain streamable. Existing legacy AES-CTR files remain readable for migration compatibility.
 * **Smart Previews**: Auto-generated thumbnails for images, videos, and PDFs.
 * **Public Sharing**: Generate short link hashes with optional password protection, download count limits, and expiration dates.
 * **Single Container**: Frontend, modular Express backend, and SQLite database run together in one lightweight Docker image.
@@ -23,26 +23,19 @@ Cabinet is optimized for mobile screens and can be added to your home screen as 
 ## Setup & Running
 
 ### Environment Variables
-Set these variables in your container run config or docker-compose file:
-* `JWT_SECRET`: Secret key for session authentication.
-  > [!WARNING]
-  > If `JWT_SECRET` is not set, it defaults to a public fallback (`'dev-secret-key'`). **Setting a custom, unique JWT secret is mandatory for production deployments** to prevent session forging and unauthorized access to your file locker.
-  >
-  > You can generate a secure random string by running:
-  > ```bash
-  > openssl rand -hex 32
-  > ```
-* `ENCRYPTION_KEY`: Secret key used to encrypt/decrypt physical files at rest.
-  > [!WARNING]
-  > File encryption is always active. If `ENCRYPTION_KEY` is omitted, Cabinet falls back to a public, insecure default key (`'dev-secret-key'`). **Setting a custom, random key is mandatory for production deployments** to keep files secure on disk.
-  >
-  > You can generate a secure 256-bit hex key by running:
-  > ```bash
-  > openssl rand -hex 32
-  > ```
-* `STORAGE_PATH`: Path to the persistent user storage folder (defaults to `/app/users`).
-* `MAX_UPLOAD_SIZE`: Maximum single file size allowed for upload in bytes.
-* `REGISTRATION_CODE`: Optional invite/sign-up code. If defined, users registering on the login screen must enter this matching code to successfully create an account. If left blank, registration is open to anyone.
+Cabinet now fails fast when required security configuration is missing.
+
+* `JWT_SECRET`: Required. At least 32 characters. Generate one with `openssl rand -hex 32`.
+* `ENCRYPTION_KEY`: Required. Exactly 64 hexadecimal characters (32 bytes). Generate one with `openssl rand -hex 32`. Keep this key backed up; losing it makes stored files unreadable.
+* `ADMIN_PASSWORD`: Required. At least 12 characters. On a fresh install this is used for the bootstrap administrator. Upgraded installs that still use the historical `admin123` password are automatically rotated to this value.
+* `ADMIN_USERNAME`: Optional bootstrap administrator username. Defaults to `admin`.
+* `ALLOW_REGISTRATION`: Optional. Defaults to `false`. Set to `true` only if open registration is intended.
+* `REGISTRATION_CODE`: Optional invite code. When set, registration requires the matching code.
+* `STORAGE_PATH`: Persistent storage directory. Defaults to `/app/users` in the container.
+* `MAX_UPLOAD_SIZE`: Maximum single-file upload size in bytes.
+* `TRUST_PROXY`: Set to `true` when Cabinet is behind a trusted reverse proxy and IP-aware rate limiting should honor the proxy address.
+
+Copy `.env.example` to `.env` and replace every placeholder before using Docker Compose.
 
 ### Quick Start
 
@@ -55,9 +48,10 @@ Set these variables in your container run config or docker-compose file:
    ```bash
    docker run -d \
      -p 4444:4444 \
-     -e ENCRYPTION_KEY="your-secure-encryption-key" \
-     -e JWT_SECRET="your-secure-jwt-secret" \
-     -v $(pwd)/user_data:/app/users \
+     -e ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+     -e JWT_SECRET="$(openssl rand -hex 32)" \
+     -e ADMIN_PASSWORD="replace-with-a-strong-password" \
+     -v "$(pwd)/user_data:/app/users" \
      cabinet
    ```
 
@@ -79,7 +73,7 @@ docker compose build --no-cache && docker compose up -d
 
 ### Reverse Proxy & SSL
 
-Cabinet is designed to run behind a reverse proxy (like Nginx, Traefik, or Caddy) for SSL termination. The container listens on port `4444`. HSTS and security header enforcements are disabled in Node to let your proxy handle routing and security configuration.
+Cabinet is designed to run behind a reverse proxy (like Nginx, Traefik, or Caddy) for TLS termination. The container listens on port `4444`. Set `TRUST_PROXY=true` only when requests reach Cabinet through a trusted proxy.
 
 ---
 
