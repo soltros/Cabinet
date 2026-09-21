@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import cabinetIcon from './cabinet-icon.svg';
 
 const PublicShare = ({ shareId }) => {
@@ -7,10 +7,15 @@ const PublicShare = ({ shareId }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
 
   const showToast = (message, type = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 3000);
   };
 
   useEffect(() => {
