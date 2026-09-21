@@ -39,8 +39,8 @@ if (JWT_SECRET.length < 32) {
   throw new Error('JWT_SECRET must be at least 32 characters long');
 }
 
-if (!/^[0-9a-fA-F]{64}$/.test(ENCRYPTION_KEY)) {
-  throw new Error('ENCRYPTION_KEY must be exactly 64 hexadecimal characters (32 bytes)');
+if (ENCRYPTION_KEY.length < 32) {
+  throw new Error('ENCRYPTION_KEY must be at least 32 characters long');
 }
 
 if (ADMIN_PASSWORD.length < 12) {
