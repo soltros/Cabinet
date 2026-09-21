@@ -743,7 +743,7 @@ function App() {
             <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6" />
             
             {/* Image Viewer */}
-            {selectedFile.mimeType.startsWith('image/') && (
+            {selectedFile.mimeType?.startsWith('image/') && (
               <div className="w-full rounded-lg mb-4 bg-gray-100 overflow-hidden">
                 <a href={`/api/files/${selectedFile.id}/content`} target="_blank" rel="noopener noreferrer">
                   <img 
@@ -756,7 +756,7 @@ function App() {
             )}
 
             {/* Task 5.1: Video Player */}
-            {selectedFile.mimeType.startsWith('video/') && (
+            {selectedFile.mimeType?.startsWith('video/') && (
               <video 
                 controls 
                 className="w-full rounded-lg mb-4 bg-black aspect-video"
@@ -768,7 +768,7 @@ function App() {
             )}
 
             {/* Audio Player */}
-            {selectedFile.mimeType.startsWith('audio/') && (
+            {selectedFile.mimeType?.startsWith('audio/') && (
               <div className="w-full rounded-lg mb-4 bg-gray-100 p-4 flex items-center justify-center">
                 <audio 
                   controls 
