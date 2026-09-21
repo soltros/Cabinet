@@ -18,4 +18,5 @@ services:
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       REGISTRATION_CODE: ${REGISTRATION_CODE:-}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
     restart: unless-stopped
