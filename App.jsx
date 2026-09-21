@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import FileGrid from './FileGrid';
 import UploadProgress from './UploadProgress';
 import AdminDashboard from './AdminDashboard';
@@ -30,6 +30,7 @@ function App() {
   const [currentFolder, setCurrentFolder] = useState(null); // ID or null for root
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
   const fileInputRef = useRef(null);
+  const toastTimerRef = useRef(null);
   
   // Login State
   const [username, setUsername] = useState('');
@@ -88,8 +89,12 @@ function App() {
   };
 
   const showToast = (message, type = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 3000);
   };
 
   const handleAuth = async (e) => {
@@ -197,7 +202,7 @@ function App() {
       };
 
       xhr.onload = () => {
-        if (xhr.status === 200) {
+        if (xhr.status >= 200 && xhr.status < 300) {
           setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'completed', progress: 100 } : u));
           fetchFiles();
           setTimeout(() => {
@@ -218,7 +223,7 @@ function App() {
         }, 6000);
       };
 
-      xhr.open('POST', '/api/upload');
+      xhr.open('POST', '/api/files');
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(formData);
     });
@@ -249,7 +254,7 @@ function App() {
 
   const handleDownload = () => {
     if (!selectedFile) return;
-    const url = `/api/files/${selectedFile.id}/content?token=${token}&download=true`;
+    const url = `/api/files/${selectedFile.id}/content?download=true`;
     const a = document.createElement('a');
     a.href = url;
     a.download = selectedFile.name;
@@ -457,7 +462,7 @@ function App() {
     if (!token) return false;
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
-      return payload.username === 'admin';
+      return payload.role === 'admin';
     } catch (e) {
       return false;
     }
@@ -485,18 +490,24 @@ function App() {
     });
   };
 
-  const getBreadcrumbs = () => {
-    const crumbs = [{ id: null, name: 'Home' }];
-    let curr = currentFolder;
+  const folderById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder])),
+    [folders]
+  );
+
+  const breadcrumbs = useMemo(() => {
     const path = [];
-    while (curr) {
-      const folder = folders.find(f => f.id === curr);
+    let curr = currentFolder;
+    const visited = new Set();
+    while (curr && !visited.has(curr)) {
+      visited.add(curr);
+      const folder = folderById.get(curr);
       if (!folder) break;
       path.unshift(folder);
       curr = folder.parentId;
     }
-    return [...crumbs, ...path];
-  };
+    return [{ id: null, name: 'Home' }, ...path];
+  }, [currentFolder, folderById]);
 
   // Render Public Share View
   if (window.location.pathname.startsWith('/s/')) {
@@ -661,7 +672,12 @@ function App() {
               </button>
             )}
             <button 
-              onClick={() => { localStorage.removeItem('token'); setToken(null); setView('files'); }}
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                localStorage.removeItem('token');
+                setToken(null);
+                setView('files');
+              }}
               className="text-sm text-gray-500 hover:text-red-500"
             >
               Logout
@@ -687,12 +703,12 @@ function App() {
           
           {/* Breadcrumbs */}
           <div className="px-4 mb-4 flex items-center gap-2 text-sm text-gray-600 overflow-x-auto whitespace-nowrap">
-            {getBreadcrumbs().map((crumb, i) => (
+            {breadcrumbs.map((crumb, i) => (
               <div key={crumb.id || 'root'} className="flex items-center">
                 {i > 0 && <span className="mx-2 text-gray-400">/</span>}
                 <button 
                   onClick={() => setCurrentFolder(crumb.id)}
-                  className={`hover:text-blue-600 ${i === getBreadcrumbs().length - 1 ? 'font-bold text-gray-900' : ''}`}
+                  className={`hover:text-blue-600 ${i === breadcrumbs.length - 1 ? 'font-bold text-gray-900' : ''}`}
                 >
                   {crumb.name}
                 </button>
@@ -876,7 +892,7 @@ function App() {
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Max Downloads</label>
-                    <input name="maxDownloads" type="number" className="w-full p-2 border rounded text-sm" />
+                    <input name="downloadLimit" type="number" className="w-full p-2 border rounded text-sm" />
                   </div>
                 </div>
                 <div className="mb-3">
