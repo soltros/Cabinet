@@ -8,7 +8,7 @@ import {
   ALLOW_REGISTRATION,
   DEFAULT_USER_QUOTA,
   JWT_SECRET,
-  NODE_ENV,
+  COOKIE_SECURE,
   REGISTRATION_CODE
 } from '../config.js';
 
@@ -18,7 +18,7 @@ const cookieOptions = [
   'Path=/',
   'SameSite=Strict',
   'Max-Age=86400',
-  NODE_ENV === 'production' ? 'Secure' : null
+  COOKIE_SECURE ? 'Secure' : null
 ].filter(Boolean).join('; ');
 
 const validatePassword = (password) =>
@@ -92,7 +92,7 @@ export const me = async (req, res) => {
 };
 
 export const logout = async (req, res) => {
-  const secure = NODE_ENV === 'production' ? '; Secure' : '';
+  const secure = COOKIE_SECURE ? '; Secure' : '';
   res.setHeader('Set-Cookie', `cabinet_token=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${secure}`);
   res.json({ status: 'success' });
 };
