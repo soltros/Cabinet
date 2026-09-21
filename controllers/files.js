@@ -219,12 +219,15 @@ export const uploadFile = async (req, res) => {
 
 export const getFiles = async (req, res) => {
   const files = await db.all(
-    `SELECT DISTINCT f.*
+    `SELECT DISTINCT
+       f.id, f.ownerId, f.name, f.extension, f.mimeType, f.size, f.hash, f.path,
+       CASE WHEN f.ownerId = ? THEN f.parentId ELSE NULL END AS parentId,
+       f.thumbnail, f.createdAt, f.updatedAt
      FROM files f
      LEFT JOIN shared_files sf ON sf.fileId = f.id
      WHERE f.ownerId = ? OR sf.userId = ?
      ORDER BY f.createdAt DESC`,
-    [req.user.id, req.user.id]
+    [req.user.id, req.user.id, req.user.id]
   );
   res.json({ files });
 };
