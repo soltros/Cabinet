@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   cabinet:
     container_name: cabinet
@@ -9,11 +7,15 @@ services:
     volumes:
       - ./user_data:/app/users
     environment:
-      - PORT=4444
-      - NODE_ENV=production
-      - STORAGE_PATH=/app/users
-      - MAX_UPLOAD_SIZE=524288000 # 500MB
-      # - JWT_SECRET=your_secure_secret # Generate with: openssl rand -hex 32
-      # - ENCRYPTION_KEY=your_secure_encryption_key # Generate with: openssl rand -hex 32
-      # - REGISTRATION_CODE=your_signup_code_here
+      PORT: "4444"
+      NODE_ENV: production
+      STORAGE_PATH: /app/users
+      MAX_UPLOAD_SIZE: "524288000"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to at least 32 characters}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY to 64 hexadecimal characters}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD to at least 12 characters}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      REGISTRATION_CODE: ${REGISTRATION_CODE:-}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
     restart: unless-stopped
