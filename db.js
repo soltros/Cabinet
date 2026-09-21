@@ -90,6 +90,14 @@ await db.exec(`
   CREATE INDEX IF NOT EXISTS idx_shared_files_user ON shared_files(userId);
 `);
 
+// Repair quota accounting after interrupted uploads/deletions before accepting traffic.
+await db.run(`
+  UPDATE users
+  SET usedSpace = COALESCE((
+    SELECT SUM(size) FROM files WHERE files.ownerId = users.id
+  ), 0)
+`);
+
 const ADMIN_ID = '00000000-0000-0000-0000-000000000000';
 const adminUser = await db.get('SELECT id, password FROM users WHERE id = ?', [ADMIN_ID]);
 
