@@ -1,7 +1,8 @@
 services:
   cabinet:
     container_name: cabinet
-    build: .
+    image: ghcr.io/soltros/cabinet:latest
+    pull_policy: always
     ports:
       - "4444:4444"
     volumes:
