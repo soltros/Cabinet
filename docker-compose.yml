@@ -12,7 +12,7 @@ services:
       STORAGE_PATH: /app/users
       MAX_UPLOAD_SIZE: "524288000"
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to at least 32 characters}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY to 64 hexadecimal characters}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY to at least 32 characters}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD to at least 12 characters}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
