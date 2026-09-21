@@ -40,20 +40,21 @@ Copy `.env.example` to `.env` and replace every placeholder before using Docker 
 
 ### Quick Start
 
-1. **Build the image**
+1. **Pull the published image**
    ```bash
-   docker build -t cabinet .
+   docker pull ghcr.io/soltros/cabinet:latest
    ```
 
 2. **Run the container**
    ```bash
    docker run -d \
+     --name cabinet \
      -p 4444:4444 \
      -e ENCRYPTION_KEY="$(openssl rand -hex 32)" \
      -e JWT_SECRET="$(openssl rand -hex 32)" \
      -e ADMIN_PASSWORD="replace-with-a-strong-password" \
      -v "$(pwd)/user_data:/app/users" \
-     cabinet
+     ghcr.io/soltros/cabinet:latest
    ```
 
 3. **Access**
@@ -62,15 +63,14 @@ Copy `.env.example` to `.env` and replace every placeholder before using Docker 
 
 ### Using Docker Compose
 
-Start the container and map `./user_data` to host storage:
+The Compose file deploys the published GHCR image rather than building locally:
+
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-To run a clean build without cache:
-```bash
-docker compose build --no-cache && docker compose up -d
-```
+`docker-compose.yml` uses `ghcr.io/soltros/cabinet:latest` with `pull_policy: always`. Local source builds remain available for development and CI with `docker build`.
 
 ### Reverse Proxy & SSL
 
