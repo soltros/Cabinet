@@ -26,7 +26,7 @@ Cabinet is optimized for mobile screens and can be added to your home screen as 
 Cabinet now fails fast when required security configuration is missing.
 
 * `JWT_SECRET`: Required. At least 32 characters. Generate one with `openssl rand -hex 32`.
-* `ENCRYPTION_KEY`: Required. Exactly 64 hexadecimal characters (32 bytes). Generate one with `openssl rand -hex 32`. Keep this key backed up; losing it makes stored files unreadable.
+* `ENCRYPTION_KEY`: Required. At least 32 characters. New installs should use a full 32-byte random value such as `openssl rand -hex 32`. Existing non-hex secrets remain supported so legacy files stay decryptable. Keep this key backed up; losing it makes stored files unreadable.
 * `ADMIN_PASSWORD`: Required. At least 12 characters. On a fresh install this is used for the bootstrap administrator. Upgraded installs that still use the historical `admin123` password are automatically rotated to this value.
 * `ADMIN_USERNAME`: Optional bootstrap administrator username. Defaults to `admin`.
 * `ALLOW_REGISTRATION`: Optional. Defaults to `false`. Set to `true` only if open registration is intended.
