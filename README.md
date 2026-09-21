@@ -34,6 +34,7 @@ Cabinet now fails fast when required security configuration is missing.
 * `STORAGE_PATH`: Persistent storage directory. Defaults to `/app/users` in the container.
 * `MAX_UPLOAD_SIZE`: Maximum single-file upload size in bytes.
 * `TRUST_PROXY`: Set to `true` when Cabinet is behind a trusted reverse proxy and IP-aware rate limiting should honor the proxy address.
+* `COOKIE_SECURE`: Defaults to `true` in production. Set to `false` only for an intentional plain-HTTP local/LAN deployment; HTTPS deployments should keep it enabled.
 
 Copy `.env.example` to `.env` and replace every placeholder before using Docker Compose.
 
