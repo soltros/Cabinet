@@ -2,67 +2,89 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db.js';
 
+const parseDownloadLimit = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : false;
+};
+
+const parseExpiration = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return false;
+  return date.toISOString();
+};
+
 export const createShare = async (req, res) => {
-  const { fileId, password, expiresInHours, downloadLimit } = req.body;
-  
-  const file = await db.get('SELECT * FROM files WHERE id = ? AND ownerId = ?', [fileId, req.user.id]);
+  const { fileId, password } = req.body;
+  const downloadLimit = parseDownloadLimit(req.body.downloadLimit);
+  const expiresAt = parseExpiration(req.body.expiresAt);
+
+  if (downloadLimit === false) return res.status(400).json({ error: 'downloadLimit must be a positive integer' });
+  if (expiresAt === false) return res.status(400).json({ error: 'expiresAt must be a future date' });
+
+  const file = await db.get(
+    'SELECT id FROM files WHERE id = ? AND ownerId = ?',
+    [fileId, req.user.id]
+  );
   if (!file) return res.status(404).json({ error: 'File not found' });
 
-  const id = uuidv4();
-  let hashedPassword = null;
-  if (password) {
-    hashedPassword = await bcrypt.hash(password, 10);
-  }
-
-  let expiresAt = null;
-  if (expiresInHours) {
-    const d = new Date();
-    d.setHours(d.getHours() + parseInt(expiresInHours));
-    expiresAt = d.toISOString();
-  }
-
   const share = {
-    id,
+    id: uuidv4(),
     fileId,
     creatorId: req.user.id,
-    password: hashedPassword,
+    password: password ? await bcrypt.hash(password, 12) : null,
     expiresAt,
-    downloadLimit: downloadLimit ? parseInt(downloadLimit) : null,
+    downloadLimit,
     downloads: 0,
     active: 1,
     createdAt: new Date().toISOString()
   };
 
   await db.run(
-    `INSERT INTO shares (id, fileId, creatorId, password, expiresAt, downloadLimit, downloads, active, createdAt) 
+    `INSERT INTO shares
+     (id, fileId, creatorId, password, expiresAt, downloadLimit, downloads, active, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [share.id, share.fileId, share.creatorId, share.password, share.expiresAt, share.downloadLimit, share.downloads, share.active, share.createdAt]
+    [
+      share.id, share.fileId, share.creatorId, share.password, share.expiresAt,
+      share.downloadLimit, share.downloads, share.active, share.createdAt
+    ]
   );
 
-  res.json({ status: 'success', link: `/s/${id}` });
+  res.status(201).json({
+    status: 'success',
+    link: `/s/${share.id}`,
+    share: {
+      id: share.id,
+      fileId: share.fileId,
+      expiresAt: share.expiresAt,
+      downloadLimit: share.downloadLimit,
+      downloads: 0,
+      active: true,
+      hasPassword: Boolean(share.password),
+      createdAt: share.createdAt
+    }
+  });
 };
 
 export const getShares = async (req, res) => {
   const shares = await db.all(
-    `SELECT s.*, f.name as fileName 
-     FROM shares s 
-     JOIN files f ON s.fileId = f.id 
-     WHERE s.creatorId = ? AND s.active = 1`, 
+    `SELECT s.id, s.fileId, s.expiresAt, s.downloadLimit, s.downloads, s.active,
+            s.createdAt, (s.password IS NOT NULL) AS hasPassword, f.name AS fileName
+     FROM shares s
+     JOIN files f ON s.fileId = f.id
+     WHERE s.creatorId = ? AND s.active = 1
+     ORDER BY s.createdAt DESC`,
     [req.user.id]
   );
-  
-  const sanitized = shares.map(s => {
-    const { password, ...rest } = s;
-    return { ...rest, hasPassword: !!password };
-  });
-
-  res.json({ shares: sanitized });
+  res.json({ shares });
 };
 
 export const deleteShare = async (req, res) => {
-  const share = await db.get('SELECT * FROM shares WHERE id = ? AND creatorId = ?', [req.params.id, req.user.id]);
-  if (!share) return res.status(404).json({ error: 'Share not found' });
-
-  await db.run('UPDATE shares SET active = 0 WHERE id = ?', [req.params.id]);
+  const result = await db.run(
+    'UPDATE shares SET active = 0 WHERE id = ? AND creatorId = ?',
+    [req.params.id, req.user.id]
+  );
+  if (result.changes !== 1) return res.status(404).json({ error: 'Share not found' });
   res.json({ status: 'success' });
 };
