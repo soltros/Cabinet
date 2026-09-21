@@ -22,10 +22,71 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install and build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build smoke-test image
+        run: docker build -t cabinet-smoke .
+
+      - name: Smoke-test container
+        run: |
+          set -euo pipefail
+          cleanup() {
+            echo "=== container state ==="
+            docker inspect cabinet-smoke --format '{{json .State}}' 2>/dev/null || true
+            echo "=== container logs ==="
+            docker logs cabinet-smoke || true
+            docker rm -f cabinet-smoke 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          docker run -d --name cabinet-smoke \
+            -p 4444:4444 \
+            -e JWT_SECRET=0123456789abcdef0123456789abcdef \
+            -e ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e ADMIN_PASSWORD=change-me-for-ci-only \
+            -e COOKIE_SECURE=false \
+            cabinet-smoke
+
+          healthy=false
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4444/health >/dev/null; then
+              healthy=true
+              break
+            fi
+            if ! docker inspect -f '{{.State.Running}}' cabinet-smoke 2>/dev/null | grep -q true; then
+              echo "Container exited before becoming healthy"
+              echo "=== foreground reproduction ==="
+              docker run --rm \
+                -e JWT_SECRET=0123456789abcdef0123456789abcdef \
+                -e ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+                -e ADMIN_PASSWORD=change-me-for-ci-only \
+                -e COOKIE_SECURE=false \
+                cabinet-smoke node app.js || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ "$healthy" != true ]; then
+            echo "Container never became healthy"
+            exit 1
+          fi
+
+          curl -fsS http://127.0.0.1:4444/api/docs >/dev/null
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log into registry ${{ env.REGISTRY }}
+      - name: Log into registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:

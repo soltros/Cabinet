@@ -1,50 +1,41 @@
-# Stage 1: Build
-FROM node:20-bullseye AS builder
-
+FROM node:24-trixie AS builder
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && \
-    apt-get install -y python3 make g++ build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-COPY package*.json ./
-RUN npm install
-
-# Copy source
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
-
-# Build Frontend
 RUN npm run build
 
-# Stage 2: Production
-FROM node:20-bullseye
-
+FROM node:24-trixie-slim AS runtime
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y ffmpeg poppler-utils python3 make g++ build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg poppler-utils \
+ && rm -rf /var/lib/apt/lists/*
 
-# Install production dependencies
-COPY package*.json ./
-RUN npm install --production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy backend source files
-COPY app.js auth.js db.js storage.js crypto.js swagger.yaml ./
+COPY --chown=node:node app.js config.js db.js storage.js crypto.js logger.js swagger.yaml ./
+COPY --chown=node:node controllers ./controllers
+COPY --chown=node:node routes ./routes
+COPY --chown=node:node middlewares ./middlewares
+COPY --from=builder --chown=node:node /app/dist ./dist
 
-# Copy built frontend from builder stage
-COPY --from=builder /app/dist ./dist
+RUN mkdir -p /app/users && chown -R node:node /app/users /app
+USER node
 
-# Create storage directory for volume mapping
-RUN mkdir -p /app/users
-
-# Environment setup
 ENV PORT=4444
 ENV NODE_ENV=production
 ENV STORAGE_PATH=/app/users
 ENV MAX_UPLOAD_SIZE=524288000
 
 EXPOSE 4444
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:4444/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 CMD ["node", "app.js"]

@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
@@ -9,6 +8,7 @@ import YAML from 'yamljs';
 import { fileURLToPath } from 'url';
 
 import logger from './logger.js';
+import { PORT, TRUST_PROXY } from './config.js';
 import authRouter from './routes/auth.js';
 import filesRouter from './routes/files.js';
 import foldersRouter from './routes/folders.js';
@@ -18,12 +18,11 @@ import publicRouter from './routes/public.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const app = express();
-const PORT = process.env.PORT || 4444;
+
+if (TRUST_PROXY) app.set('trust proxy', 1);
 
 app.use(helmet({
-  hsts: false,
   crossOriginOpenerPolicy: false,
   contentSecurityPolicy: {
     directives: {
@@ -37,19 +36,18 @@ app.use(helmet({
       "script-src": ["'self'"],
       "script-src-attr": ["'none'"],
       "style-src": ["'self'", "https:", "'unsafe-inline'"],
-      "media-src": ["'self'", "data:", "blob:"],
+      "media-src": ["'self'", "blob:"],
       "frame-src": ["'self'", "blob:"],
-      "connect-src": ["'self'", "ws:", "wss:", "data:", "blob:"],
-    },
-  },
+      "connect-src": ["'self'", "ws:", "wss:"]
+    }
+  }
 }));
-app.use(cors());
-app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 
 const api = express.Router();
-
 api.use('/auth', authRouter);
 api.use('/files', filesRouter);
 api.use('/folders', foldersRouter);
@@ -59,13 +57,7 @@ api.use('/public', publicRouter);
 
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 api.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-
 app.use('/api', api);
-
-// Shortlink Redirect
-app.get('/s/:id', (req, res) => {
-  res.redirect(`/?share=${req.params.id}`);
-});
 
 app.use(express.static(path.join(__dirname, 'dist')));
 
@@ -75,15 +67,16 @@ app.get('/health', (req, res) => {
 
 app.get('*', (req, res) => {
   const indexPath = path.join(__dirname, 'dist/index.html');
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.status(404).send('Cabinet is running, but the frontend build is missing.');
-  }
+  if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+  res.status(404).send('Cabinet is running, but the frontend build is missing.');
 });
 
 app.use((err, req, res, next) => {
-  logger.error(err.stack);
+  logger.error(err.stack || err.message || String(err));
+  if (res.headersSent) return next(err);
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File exceeds maximum upload size' });
+  }
   res.status(500).json({ error: 'Internal Server Error' });
 });
 

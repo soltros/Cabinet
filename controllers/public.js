@@ -1,85 +1,94 @@
-import fs from 'fs/promises';
-import fsSync from 'fs';
 import bcrypt from 'bcryptjs';
+import { pipeline } from 'stream/promises';
 import { db } from '../db.js';
-import { createDecryptionStream, deriveKey } from '../crypto.js';
+import { createDecryptionStream } from '../crypto.js';
+import { ENCRYPTION_KEY } from '../config.js';
 import logger from '../logger.js';
 
+const getUsableShare = async (id) => {
+  const share = await db.get(
+    `SELECT s.*, f.name, f.size, f.mimeType, f.path
+     FROM shares s
+     JOIN files f ON f.id = s.fileId
+     WHERE s.id = ? AND s.active = 1`,
+    [id]
+  );
+  if (!share) return { error: [404, 'Link not found'] };
+  if (share.expiresAt && Date.now() >= new Date(share.expiresAt).getTime()) {
+    return { error: [410, 'Link expired'] };
+  }
+  if (share.downloadLimit !== null && share.downloads >= share.downloadLimit) {
+    return { error: [410, 'Download limit reached'] };
+  }
+  return { share };
+};
+
+const checkPassword = async (share, password) => {
+  if (!share.password) return true;
+  return typeof password === 'string' && bcrypt.compare(password, share.password);
+};
+
 export const getShareInfo = async (req, res) => {
-  const share = await db.get('SELECT * FROM shares WHERE id = ?', [req.params.id]);
-  if (!share || !share.active) return res.status(404).json({ error: 'Link not found or expired' });
-
-  if (share.expiresAt && new Date() > new Date(share.expiresAt)) return res.status(410).json({ error: 'Link expired' });
-  if (share.downloadLimit && share.downloads >= share.downloadLimit) return res.status(410).json({ error: 'Download limit reached' });
-
-  const file = await db.get('SELECT * FROM files WHERE id = ?', [share.fileId]);
-  if (!file) return res.status(404).json({ error: 'File source not found' });
-
+  const result = await getUsableShare(req.params.id);
+  if (result.error) return res.status(result.error[0]).json({ error: result.error[1] });
+  const { share } = result;
   res.json({
-    name: file.name,
-    size: file.size,
-    mimeType: file.mimeType,
-    isPasswordProtected: !!share.password,
-    id: share.id
+    id: share.id,
+    name: share.name,
+    size: share.size,
+    mimeType: share.mimeType,
+    isPasswordProtected: Boolean(share.password),
+    downloadLimit: share.downloadLimit,
+    downloads: share.downloads,
+    expiresAt: share.expiresAt
   });
 };
 
 export const verifyShare = async (req, res) => {
-  const { password } = req.body;
-  const share = await db.get('SELECT * FROM shares WHERE id = ?', [req.params.id]);
-  if (!share || !share.active) return res.status(404).json({ error: 'Link not found' });
-
-  if (share.expiresAt && new Date() > new Date(share.expiresAt)) return res.status(410).json({ error: 'Link expired' });
-  if (share.downloadLimit && share.downloads >= share.downloadLimit) return res.status(410).json({ error: 'Download limit reached' });
-
-  if (share.password) {
-    if (!password || !(await bcrypt.compare(password, share.password))) {
-      return res.status(401).json({ error: 'Invalid password' });
-    }
+  const result = await getUsableShare(req.params.id);
+  if (result.error) return res.status(result.error[0]).json({ error: result.error[1] });
+  if (!(await checkPassword(result.share, req.body.password))) {
+    return res.status(401).json({ error: 'Invalid password' });
   }
-
   res.json({ status: 'success' });
 };
 
 export const downloadShare = async (req, res) => {
-  const { password } = req.body;
-  const share = await db.get('SELECT * FROM shares WHERE id = ?', [req.params.id]);
-  if (!share || !share.active) return res.status(404).json({ error: 'Link not found' });
+  const result = await getUsableShare(req.params.id);
+  if (result.error) return res.status(result.error[0]).json({ error: result.error[1] });
+  const { share } = result;
 
-  if (share.expiresAt && new Date() > new Date(share.expiresAt)) return res.status(410).json({ error: 'Link expired' });
-  if (share.downloadLimit && share.downloads >= share.downloadLimit) return res.status(410).json({ error: 'Download limit reached' });
-
-  if (share.password) {
-    if (!password || !(await bcrypt.compare(password, share.password))) {
-      return res.status(401).json({ error: 'Password required' });
-    }
+  if (!(await checkPassword(share, req.body.password))) {
+    return res.status(401).json({ error: 'Invalid password' });
   }
 
-  const file = await db.get('SELECT * FROM files WHERE id = ?', [share.fileId]);
-  if (!file) return res.status(404).json({ error: 'File not found' });
-
-  await db.run('UPDATE shares SET downloads = downloads + 1 WHERE id = ?', [share.id]);
+  const reservation = await db.run(
+    `UPDATE shares
+     SET downloads = downloads + 1
+     WHERE id = ?
+       AND active = 1
+       AND (expiresAt IS NULL OR expiresAt > ?)
+       AND (downloadLimit IS NULL OR downloads < downloadLimit)`,
+    [share.id, new Date().toISOString()]
+  );
+  if (reservation.changes !== 1) {
+    return res.status(410).json({ error: 'Share is no longer available' });
+  }
 
   try {
-    const stat = await fs.stat(file.path);
-    const IV_SIZE = 16;
-    const totalPlaintextSize = Math.max(0, stat.size - IV_SIZE);
-    const key = deriveKey(process.env.ENCRYPTION_KEY || 'dev-secret-key');
+    res.status(200);
+    res.setHeader('Content-Length', share.size);
+    res.setHeader('Content-Type', share.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(share.name)}`);
 
-    res.writeHead(200, {
-      'Content-Length': totalPlaintextSize,
-      'Content-Type': file.mimeType || 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
-    });
-
-    const stream = createDecryptionStream(file.path, key);
-    stream.on('error', (err) => {
-      logger.error('Public download stream error:', err);
-      if (!res.headersSent) res.sendStatus(500);
-    });
-    stream.pipe(res);
+    const stream = await createDecryptionStream(share.path, ENCRYPTION_KEY);
+    await pipeline(stream, res);
   } catch (error) {
-    logger.error('Public download error:', error);
-    res.status(500).send('Internal Server Error');
+    await db.run(
+      'UPDATE shares SET downloads = MAX(0, downloads - 1) WHERE id = ?',
+      [share.id]
+    ).catch(() => {});
+    logger.error('Public download failed', { shareId: share.id, error: error.message });
+    if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
   }
 };

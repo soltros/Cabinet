@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import FileGrid from './FileGrid';
 import UploadProgress from './UploadProgress';
 import AdminDashboard from './AdminDashboard';
@@ -30,6 +30,7 @@ function App() {
   const [currentFolder, setCurrentFolder] = useState(null); // ID or null for root
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
   const fileInputRef = useRef(null);
+  const toastTimerRef = useRef(null);
   
   // Login State
   const [username, setUsername] = useState('');
@@ -88,8 +89,12 @@ function App() {
   };
 
   const showToast = (message, type = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 3000);
   };
 
   const handleAuth = async (e) => {
@@ -179,49 +184,55 @@ function App() {
   });
 
   // Upload Logic
-  const uploadFiles = (filesToUpload) => {
-    Array.from(filesToUpload).forEach(file => {
-      const uploadId = Math.random().toString(36).substr(2, 9);
-      setUploads(prev => [...prev, { id: uploadId, name: file.name, progress: 0, status: 'uploading' }]);
+  const uploadOne = (file) => new Promise((resolve) => {
+    const uploadId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+    setUploads(prev => [...prev, { id: uploadId, name: file.name, progress: 0, status: 'uploading' }]);
 
-      const xhr = new XMLHttpRequest();
-      const formData = new FormData();
-      formData.append('file', file);
-      if (currentFolder) formData.append('parentId', currentFolder);
+    const xhr = new XMLHttpRequest();
+    const formData = new FormData();
+    formData.append('file', file);
+    if (currentFolder) formData.append('parentId', currentFolder);
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, progress: percent } : u));
-        }
-      };
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      const percent = Math.round((event.loaded / event.total) * 100);
+      setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, progress: percent } : u));
+    };
 
-      xhr.onload = () => {
-        if (xhr.status === 200) {
-          setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'completed', progress: 100 } : u));
-          fetchFiles();
-          setTimeout(() => {
-            setUploads(prev => prev.filter(u => u.id !== uploadId));
-          }, 3000); 
-        } else {
-          setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' } : u));
-          setTimeout(() => {
-            setUploads(prev => prev.filter(u => u.id !== uploadId));
-          }, 6000);
-        }
-      };
+    const finish = (status) => {
+      setUploads(prev => prev.map(u =>
+        u.id === uploadId
+          ? { ...u, status, progress: status === 'completed' ? 100 : u.progress }
+          : u
+      ));
+      setTimeout(() => {
+        setUploads(prev => prev.filter(u => u.id !== uploadId));
+      }, status === 'completed' ? 3000 : 6000);
+      resolve(status === 'completed');
+    };
 
-      xhr.onerror = () => {
-        setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' } : u));
-        setTimeout(() => {
-          setUploads(prev => prev.filter(u => u.id !== uploadId));
-        }, 6000);
-      };
+    xhr.onload = () => finish(xhr.status >= 200 && xhr.status < 300 ? 'completed' : 'error');
+    xhr.onerror = () => finish('error');
+    xhr.open('POST', '/api/files');
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
+  });
 
-      xhr.open('POST', '/api/upload');
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.send(formData);
-    });
+  const uploadFiles = async (filesToUpload) => {
+    const queue = Array.from(filesToUpload);
+    const workerCount = Math.min(3, queue.length);
+    let cursor = 0;
+    let uploadedAny = false;
+
+    const worker = async () => {
+      while (cursor < queue.length) {
+        const index = cursor++;
+        uploadedAny = (await uploadOne(queue[index])) || uploadedAny;
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, worker));
+    if (uploadedAny) await fetchFiles();
   };
 
   const handleDragOver = (e) => {
@@ -249,7 +260,7 @@ function App() {
 
   const handleDownload = () => {
     if (!selectedFile) return;
-    const url = `/api/files/${selectedFile.id}/content?token=${token}&download=true`;
+    const url = `/api/files/${selectedFile.id}/content?download=true`;
     const a = document.createElement('a');
     a.href = url;
     a.download = selectedFile.name;
@@ -457,7 +468,7 @@ function App() {
     if (!token) return false;
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
-      return payload.username === 'admin';
+      return payload.role === 'admin';
     } catch (e) {
       return false;
     }
@@ -485,18 +496,24 @@ function App() {
     });
   };
 
-  const getBreadcrumbs = () => {
-    const crumbs = [{ id: null, name: 'Home' }];
-    let curr = currentFolder;
+  const folderById = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder])),
+    [folders]
+  );
+
+  const breadcrumbs = useMemo(() => {
     const path = [];
-    while (curr) {
-      const folder = folders.find(f => f.id === curr);
+    let curr = currentFolder;
+    const visited = new Set();
+    while (curr && !visited.has(curr)) {
+      visited.add(curr);
+      const folder = folderById.get(curr);
       if (!folder) break;
       path.unshift(folder);
       curr = folder.parentId;
     }
-    return [...crumbs, ...path];
-  };
+    return [{ id: null, name: 'Home' }, ...path];
+  }, [currentFolder, folderById]);
 
   // Render Public Share View
   if (window.location.pathname.startsWith('/s/')) {
@@ -661,7 +678,12 @@ function App() {
               </button>
             )}
             <button 
-              onClick={() => { localStorage.removeItem('token'); setToken(null); setView('files'); }}
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                localStorage.removeItem('token');
+                setToken(null);
+                setView('files');
+              }}
               className="text-sm text-gray-500 hover:text-red-500"
             >
               Logout
@@ -687,12 +709,12 @@ function App() {
           
           {/* Breadcrumbs */}
           <div className="px-4 mb-4 flex items-center gap-2 text-sm text-gray-600 overflow-x-auto whitespace-nowrap">
-            {getBreadcrumbs().map((crumb, i) => (
+            {breadcrumbs.map((crumb, i) => (
               <div key={crumb.id || 'root'} className="flex items-center">
                 {i > 0 && <span className="mx-2 text-gray-400">/</span>}
                 <button 
                   onClick={() => setCurrentFolder(crumb.id)}
-                  className={`hover:text-blue-600 ${i === getBreadcrumbs().length - 1 ? 'font-bold text-gray-900' : ''}`}
+                  className={`hover:text-blue-600 ${i === breadcrumbs.length - 1 ? 'font-bold text-gray-900' : ''}`}
                 >
                   {crumb.name}
                 </button>
@@ -700,7 +722,7 @@ function App() {
             ))}
           </div>
 
-          <FileGrid files={filteredFiles} folders={filteredFolders} onFileClick={setSelectedFile} onFolderClick={setCurrentFolder} token={token} viewMode={viewMode} />
+          <FileGrid files={filteredFiles} folders={filteredFolders} onFileClick={setSelectedFile} onFolderClick={setCurrentFolder} viewMode={viewMode} />
         </main>
       )}
 
@@ -721,11 +743,11 @@ function App() {
             <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6" />
             
             {/* Image Viewer */}
-            {selectedFile.mimeType.startsWith('image/') && (
+            {selectedFile.mimeType?.startsWith('image/') && (
               <div className="w-full rounded-lg mb-4 bg-gray-100 overflow-hidden">
-                <a href={`/api/files/${selectedFile.id}/content?token=${token}`} target="_blank" rel="noopener noreferrer">
+                <a href={`/api/files/${selectedFile.id}/content`} target="_blank" rel="noopener noreferrer">
                   <img 
-                    src={`/api/files/${selectedFile.id}/content?token=${token}`} 
+                    src={`/api/files/${selectedFile.id}/content`} 
                     alt={selectedFile.name}
                     className="w-full h-auto max-h-[60vh] object-contain mx-auto" 
                   />
@@ -734,24 +756,24 @@ function App() {
             )}
 
             {/* Task 5.1: Video Player */}
-            {selectedFile.mimeType.startsWith('video/') && (
+            {selectedFile.mimeType?.startsWith('video/') && (
               <video 
                 controls 
                 className="w-full rounded-lg mb-4 bg-black aspect-video"
-                poster={`${selectedFile.thumbnail}?token=${token}`}
+                poster={selectedFile.thumbnail || undefined}
               >
-                <source src={`/api/files/${selectedFile.id}/content?token=${token}`} type={selectedFile.mimeType} />
+                <source src={`/api/files/${selectedFile.id}/content`} type={selectedFile.mimeType} />
                 Your browser does not support the video tag.
               </video>
             )}
 
             {/* Audio Player */}
-            {selectedFile.mimeType.startsWith('audio/') && (
+            {selectedFile.mimeType?.startsWith('audio/') && (
               <div className="w-full rounded-lg mb-4 bg-gray-100 p-4 flex items-center justify-center">
                 <audio 
                   controls 
                   className="w-full"
-                  src={`/api/files/${selectedFile.id}/content?token=${token}`}
+                  src={`/api/files/${selectedFile.id}/content`}
                 >
                   Your browser does not support the audio element.
                 </audio>
@@ -770,7 +792,7 @@ function App() {
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
                     {selectedFile.thumbnail ? (
-                      <img src={`${selectedFile.thumbnail}?token=${token}`} className="w-full h-full object-cover opacity-50 blur-sm" />
+                      <img src={selectedFile.thumbnail} alt={`${selectedFile.name} preview`} className="w-full h-full object-cover opacity-50 blur-sm" />
                     ) : (
                       <span className="text-gray-500 font-medium animate-pulse">Loading PDF...</span>
                     )}
@@ -779,7 +801,7 @@ function App() {
               </div>
             )}
 
-            <a href={`/api/files/${selectedFile.id}/content?token=${token}`} target="_blank" rel="noopener noreferrer" className="hover:underline block">
+            <a href={`/api/files/${selectedFile.id}/content`} target="_blank" rel="noopener noreferrer" className="hover:underline block">
               <h2 className="text-lg font-bold text-gray-900 mb-1 truncate">{selectedFile.name}</h2>
             </a>
             <p className="text-xs text-gray-400 mb-2 truncate">Location: {selectedFile.parentId ? getFolderPath(selectedFile.parentId) : 'Home'}</p>
@@ -876,7 +898,7 @@ function App() {
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Max Downloads</label>
-                    <input name="maxDownloads" type="number" className="w-full p-2 border rounded text-sm" />
+                    <input name="downloadLimit" type="number" className="w-full p-2 border rounded text-sm" />
                   </div>
                 </div>
                 <div className="mb-3">

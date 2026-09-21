@@ -49,7 +49,7 @@ const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users', {
+      const res = await fetch('/api/admin/users', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -104,7 +104,7 @@ const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
   const handleRevokeShare = async (shareId) => {
     openConfirmModal('Are you sure you want to revoke this public share link? This will make the URL invalid immediately.', async () => {
       try {
-        const res = await fetch(`/api/shares/${shareId}`, {
+        const res = await fetch(`/api/admin/shares/${shareId}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -128,7 +128,7 @@ const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
     data.quota = data.quota * 1024 * 1024 * 1024; // GB to Bytes
 
     try {
-      const res = await fetch('/api/users', {
+      const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(data)
@@ -152,8 +152,8 @@ const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData.entries());
     const endpoint = editingUser.type === 'password' 
-      ? `/api/users/${editingUser.id}/password`
-      : `/api/users/${editingUser.id}/quota`;
+      ? `/api/admin/users/${editingUser.id}`
+      : `/api/admin/users/${editingUser.id}`;
     
     if (editingUser.type === 'quota') {
         data.quota = data.quota * 1024 * 1024 * 1024;
@@ -181,7 +181,7 @@ const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
   const handleDeleteUser = async (userId) => {
     openConfirmModal('Delete this user and ALL their files? This cannot be undone.', async () => {
       try {
-        const res = await fetch(`/api/users/${userId}`, {
+        const res = await fetch(`/api/admin/users/${userId}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -436,15 +436,15 @@ const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
                         {share.creatorName}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        <span className="font-semibold text-gray-800">{share.currentDownloads || 0}</span>
+                        <span className="font-semibold text-gray-800">{share.downloads || 0}</span>
                         <span className="text-gray-400"> / </span>
-                        <span>{share.maxDownloads ?? '∞'}</span>
+                        <span>{share.downloadLimit ?? '∞'}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {formatExpiration(share.expiresAt)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {share.isPasswordProtected ? (
+                        {share.hasPassword ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
                             <svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -489,7 +489,7 @@ const AdminDashboard = ({ token, showToast, openConfirmModal }) => {
             <h3 className="font-medium text-gray-700">Server Logs</h3>
             <div className="flex gap-2">
               <button onClick={fetchLogs} className="text-sm text-blue-600 hover:text-blue-800 font-medium px-3 py-1">Refresh</button>
-              <button onClick={() => window.open(`/api/admin/logs?download=true&token=${token}`, '_blank')} className="text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium px-3 py-1 rounded">Download</button>
+              <button onClick={() => window.open('/api/admin/logs?download=true', '_blank')} className="text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium px-3 py-1 rounded">Download</button>
             </div>
           </div>
           <pre className="flex-1 p-4 overflow-auto text-xs font-mono bg-gray-900 text-gray-100 whitespace-pre-wrap">{logs || 'Loading logs...'}</pre>

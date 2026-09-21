@@ -1,0 +1,11 @@
+node_modules
+user_data
+dist
+.git
+.github
+screenshots
+docs
+*.log
+.env
+.env.*
+yarn.lock
