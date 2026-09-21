@@ -40,7 +40,10 @@ jobs:
         run: |
           set -euo pipefail
           cleanup() {
-            docker logs cabinet-smoke 2>/dev/null || true
+            echo "=== container state ==="
+            docker inspect cabinet-smoke --format '{{json .State}}' 2>/dev/null || true
+            echo "=== container logs ==="
+            docker logs cabinet-smoke || true
             docker rm -f cabinet-smoke 2>/dev/null || true
           }
           trap cleanup EXIT
@@ -61,6 +64,13 @@ jobs:
             fi
             if ! docker inspect -f '{{.State.Running}}' cabinet-smoke 2>/dev/null | grep -q true; then
               echo "Container exited before becoming healthy"
+              echo "=== foreground reproduction ==="
+              docker run --rm \
+                -e JWT_SECRET=0123456789abcdef0123456789abcdef \
+                -e ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+                -e ADMIN_PASSWORD=change-me-for-ci-only \
+                -e COOKIE_SECURE=false \
+                cabinet-smoke node app.js || true
               exit 1
             fi
             sleep 1
