@@ -1,4 +1,4 @@
-FROM node:20-bookworm AS builder
+FROM node:24-trixie AS builder
 WORKDIR /app
 
 RUN apt-get update \
@@ -10,7 +10,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-trixie-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
