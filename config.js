@@ -30,6 +30,7 @@ export const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 export const REGISTRATION_CODE = process.env.REGISTRATION_CODE || null;
 export const ALLOW_REGISTRATION = parseBoolean(process.env.ALLOW_REGISTRATION, false);
 export const TRUST_PROXY = parseBoolean(process.env.TRUST_PROXY, false);
+export const COOKIE_SECURE = parseBoolean(process.env.COOKIE_SECURE, NODE_ENV === 'production');
 export const MAX_UPLOAD_SIZE = parsePositiveInteger('MAX_UPLOAD_SIZE', 500 * 1024 * 1024);
 export const DEFAULT_USER_QUOTA = parsePositiveInteger('DEFAULT_USER_QUOTA', 50 * 1024 * 1024 * 1024);
 export const PREVIEW_MAX_SIZE = parsePositiveInteger('PREVIEW_MAX_SIZE', 100 * 1024 * 1024);
