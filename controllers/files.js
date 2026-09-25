@@ -69,6 +69,7 @@ const validateParent = async (ownerId, parentId) => {
 };
 
 const reserveQuota = async (userId, size) => {
+  logger.debug('Quota reservation requested', { userId, size });
   await db.exec('BEGIN IMMEDIATE');
   try {
     const result = await db.run(
@@ -77,9 +78,11 @@ const reserveQuota = async (userId, size) => {
     );
     if (result.changes !== 1) {
       await db.exec('ROLLBACK');
+      logger.debug('Quota reservation denied', { userId, size });
       return false;
     }
     await db.exec('COMMIT');
+    logger.debug('Quota reservation committed', { userId, size });
     return true;
   } catch (error) {
     await db.exec('ROLLBACK').catch(() => {});
@@ -88,6 +91,7 @@ const reserveQuota = async (userId, size) => {
 };
 
 const releaseQuota = async (userId, size) => {
+  logger.debug('Quota release requested', { userId, size });
   await db.run(
     'UPDATE users SET usedSpace = MAX(0, usedSpace - ?) WHERE id = ?',
     [size, userId]
@@ -187,6 +191,17 @@ const finalizeUploadedPath = async ({
   size,
   fileId = uuidv4()
 }) => {
+  const finalizeStartedAt = process.hrtime.bigint();
+  logger.debug('Finalizing uploaded file', {
+    userId,
+    fileId,
+    originalName,
+    mimeType,
+    parentId,
+    size,
+    sourcePath
+  });
+
   if (!(await validateParent(userId, parentId))) {
     throw Object.assign(new Error('Invalid destination folder'), { statusCode: 400 });
   }
@@ -201,7 +216,14 @@ const finalizeUploadedPath = async ({
   let thumbnailUrl = null;
 
   try {
+    const hashStartedAt = process.hrtime.bigint();
     const fileHash = await calculateHash(sourcePath);
+    logger.debug('Upload hash completed', {
+      userId,
+      fileId,
+      size,
+      durationMs: Number((Number(process.hrtime.bigint() - hashStartedAt) / 1e6).toFixed(2))
+    });
 
     const fakeReq = {
       user: { id: userId },
@@ -212,10 +234,24 @@ const finalizeUploadedPath = async ({
         mimetype: mimeType || 'application/octet-stream'
       }
     };
+    const thumbnailStartedAt = process.hrtime.bigint();
     thumbnailUrl = await generateThumbnail(fakeReq, fileId);
+    logger.debug('Upload thumbnail phase completed', {
+      userId,
+      fileId,
+      generated: Boolean(thumbnailUrl),
+      durationMs: Number((Number(process.hrtime.bigint() - thumbnailStartedAt) / 1e6).toFixed(2))
+    });
 
+    const encryptionStartedAt = process.hrtime.bigint();
     await encryptFile(sourcePath, encryptedPath, ENCRYPTION_KEY);
     await fs.rename(encryptedPath, destinationPath);
+    logger.debug('Upload encryption completed', {
+      userId,
+      fileId,
+      size,
+      durationMs: Number((Number(process.hrtime.bigint() - encryptionStartedAt) / 1e6).toFixed(2))
+    });
 
     const now = new Date().toISOString();
     await db.run(
@@ -238,6 +274,15 @@ const finalizeUploadedPath = async ({
       ]
     );
 
+    logger.info('Uploaded file finalized', {
+      userId,
+      fileId,
+      name: originalName,
+      size,
+      mimeType: mimeType || 'application/octet-stream',
+      durationMs: Number((Number(process.hrtime.bigint() - finalizeStartedAt) / 1e6).toFixed(2))
+    });
+
     return {
       id: fileId,
       name: originalName,
@@ -249,6 +294,14 @@ const finalizeUploadedPath = async ({
       updatedAt: now
     };
   } catch (error) {
+    logger.error('Upload finalization failed', {
+      userId,
+      fileId,
+      originalName,
+      size,
+      sourcePath,
+      error: error?.stack || error?.message || String(error)
+    });
     await Promise.allSettled([
       fs.rm(encryptedPath, { force: true }),
       fs.rm(destinationPath, { force: true }),
@@ -304,11 +357,15 @@ export const initChunkedUpload = async (req, res) => {
   await fs.writeFile(uploadDataPath(req.user.id, uploadId), Buffer.alloc(0));
 
   logger.info('Chunked upload initialized', {
+    requestId: req.requestId || null,
     uploadId,
     userId: req.user.id,
     name,
+    mimeType,
     size,
-    chunkSize: UPLOAD_CHUNK_SIZE
+    parentId,
+    chunkSize: UPLOAD_CHUNK_SIZE,
+    expectedChunks: Math.ceil(size / UPLOAD_CHUNK_SIZE)
   });
 
   res.status(201).json({
@@ -346,11 +403,25 @@ export const uploadChunk = async (req, res) => {
     return res.status(400).json({ error: 'Chunk exceeds declared file size' });
   }
 
+  const chunkStartedAt = process.hrtime.bigint();
   await fs.appendFile(uploadDataPath(req.user.id, uploadId), chunk);
   meta.nextChunk += 1;
   meta.receivedBytes += chunk.length;
   meta.updatedAt = new Date().toISOString();
   await writeUploadMeta(meta);
+
+  logger.debug('Upload chunk stored', {
+    requestId: req.requestId || null,
+    uploadId,
+    userId: req.user.id,
+    chunkIndex,
+    chunkBytes: chunk.length,
+    receivedBytes: meta.receivedBytes,
+    totalBytes: meta.size,
+    percent: Number(((meta.receivedBytes / meta.size) * 100).toFixed(2)),
+    nextChunk: meta.nextChunk,
+    durationMs: Number((Number(process.hrtime.bigint() - chunkStartedAt) / 1e6).toFixed(2))
+  });
 
   res.json({
     status: 'success',
@@ -361,7 +432,17 @@ export const uploadChunk = async (req, res) => {
 
 export const completeChunkedUpload = async (req, res) => {
   const uploadId = req.params.uploadId;
+  const completeStartedAt = process.hrtime.bigint();
   const meta = await readUploadMeta(req.user.id, uploadId);
+
+  logger.debug('Chunked upload completion requested', {
+    requestId: req.requestId || null,
+    uploadId,
+    userId: req.user.id,
+    receivedBytes: meta.receivedBytes,
+    totalBytes: meta.size,
+    nextChunk: meta.nextChunk
+  });
 
   if (meta.receivedBytes !== meta.size) {
     return res.status(409).json({
@@ -385,11 +466,13 @@ export const completeChunkedUpload = async (req, res) => {
   await fs.rm(uploadSessionDir(req.user.id, uploadId), { recursive: true, force: true });
 
   logger.info('Chunked upload completed', {
+    requestId: req.requestId || null,
     uploadId,
     userId: req.user.id,
     fileId: file.id,
     name: file.name,
-    size: file.size
+    size: file.size,
+    durationMs: Number((Number(process.hrtime.bigint() - completeStartedAt) / 1e6).toFixed(2))
   });
 
   res.status(201).json({ status: 'success', file });
@@ -398,6 +481,14 @@ export const completeChunkedUpload = async (req, res) => {
 export const getChunkedUploadStatus = async (req, res) => {
   try {
     const meta = await readUploadMeta(req.user.id, req.params.uploadId);
+    logger.debug('Chunked upload status requested', {
+      requestId: req.requestId || null,
+      uploadId: meta.uploadId,
+      userId: req.user.id,
+      receivedBytes: meta.receivedBytes,
+      totalBytes: meta.size,
+      nextChunk: meta.nextChunk
+    });
     res.json({
       uploadId: meta.uploadId,
       chunkSize: meta.chunkSize,
@@ -417,6 +508,7 @@ export const abortChunkedUpload = async (req, res) => {
     force: true
   });
   logger.info('Chunked upload aborted', {
+    requestId: req.requestId || null,
     uploadId: req.params.uploadId,
     userId: req.user.id
   });
