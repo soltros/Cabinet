@@ -10,6 +10,7 @@ services:
     environment:
       PORT: "4444"
       NODE_ENV: production
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
       STORAGE_PATH: /app/users
       MAX_UPLOAD_SIZE: "${MAX_UPLOAD_SIZE:-53687091200}"
       UPLOAD_REQUEST_TIMEOUT_MS: "${UPLOAD_REQUEST_TIMEOUT_MS:-0}"
