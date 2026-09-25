@@ -7,7 +7,7 @@ import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import { pdf } from 'pdf-to-img';
 import { db } from '../db.js';
-import { STORAGE_ROOT } from '../storage.js';
+import { STORAGE_ROOT, initUserStorage } from '../storage.js';
 import { createDecryptionStream, encryptFile } from '../crypto.js';
 import {
   ENCRYPTION_KEY,
