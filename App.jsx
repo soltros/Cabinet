@@ -36,6 +36,8 @@ function App() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [registrationCode, setRegistrationCode] = useState('');
+  const [authMessage, setAuthMessage] = useState(null); // { type: 'error' | 'success', text }
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     // Handle Public Share Route
@@ -99,37 +101,71 @@ function App() {
 
   const handleAuth = async (e) => {
     e.preventDefault();
+    if (authLoading) return;
+
     const endpoint = isSignUp ? '/api/auth/register' : '/api/auth/login';
+    setAuthLoading(true);
+    setAuthMessage(null);
+
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, registrationCode })
       });
-      
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.indexOf("application/json") !== -1) {
-        const data = await res.json();
-        
-        if (isSignUp && data.status === 'success') {
-          showToast('Registration successful! Please login.', 'success');
-          setIsSignUp(false);
-          return;
-        }
 
-        if (data.token) {
-          localStorage.setItem('token', data.token);
-          setToken(data.token);
-        } else {
-          showToast(data.error || 'Authentication failed', 'error');
-        }
+      const contentType = res.headers.get('content-type') || '';
+      let data = null;
+
+      if (contentType.includes('application/json')) {
+        data = await res.json();
       } else {
         const text = await res.text();
-        throw new Error(`Server returned non-JSON response: ${text.slice(0, 100)}`);
+        throw new Error(
+          text
+            ? `Server returned ${res.status}: ${text.slice(0, 160)}`
+            : `Server returned HTTP ${res.status}`
+        );
       }
+
+      if (!res.ok) {
+        const message = data?.error || `${isSignUp ? 'Registration' : 'Sign in'} failed (HTTP ${res.status})`;
+        setAuthMessage({ type: 'error', text: message });
+        return;
+      }
+
+      if (isSignUp && data?.status === 'success') {
+        setPassword('');
+        setRegistrationCode('');
+        setIsSignUp(false);
+        setAuthMessage({
+          type: 'success',
+          text: 'Registration successful. You can sign in now.'
+        });
+        return;
+      }
+
+      if (data?.token) {
+        localStorage.setItem('token', data.token);
+        setAuthMessage(null);
+        setToken(data.token);
+        return;
+      }
+
+      setAuthMessage({
+        type: 'error',
+        text: data?.error || 'Authentication failed.'
+      });
     } catch (err) {
-      console.error(err);
-      showToast(`Error: ${err.message}`, 'error');
+      console.error('Authentication request failed:', err);
+      setAuthMessage({
+        type: 'error',
+        text: err instanceof TypeError
+          ? 'Unable to reach Cabinet. Check your connection or reverse proxy and try again.'
+          : (err?.message || 'Authentication request failed.')
+      });
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -666,7 +702,7 @@ function App() {
                 placeholder="Username"
                 className="w-full p-3 bg-slate-950/80 border border-slate-800 text-white rounded-xl placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                 value={username}
-                onChange={e => setUsername(e.target.value)}
+                onChange={e => { setUsername(e.target.value); setAuthMessage(null); }}
                 required
               />
             </div>
@@ -677,7 +713,7 @@ function App() {
                 placeholder="••••••••"
                 className="w-full p-3 bg-slate-950/80 border border-slate-800 text-white rounded-xl placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={e => { setPassword(e.target.value); setAuthMessage(null); }}
                 required
               />
             </div>
@@ -689,22 +725,44 @@ function App() {
                   placeholder="Invite Code (if required)"
                   className="w-full p-3 bg-slate-950/80 border border-slate-800 text-white rounded-xl placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                   value={registrationCode}
-                  onChange={e => setRegistrationCode(e.target.value)}
+                  onChange={e => { setRegistrationCode(e.target.value); setAuthMessage(null); }}
                 />
               </div>
             )}
           </div>
 
+          {authMessage && (
+            <div
+              role="alert"
+              aria-live="polite"
+              className={`mt-5 rounded-xl border px-4 py-3 text-sm ${
+                authMessage.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200'
+                  : 'bg-red-500/10 border-red-400/30 text-red-200'
+              }`}
+            >
+              {authMessage.text}
+            </div>
+          )}
+
           <button 
-            type="submit" 
-            className="w-full mt-8 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white p-3.5 rounded-xl font-bold transition-colors duration-200 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+            type="submit"
+            disabled={authLoading}
+            className="w-full mt-8 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-900/60 disabled:text-slate-400 disabled:cursor-wait text-white p-3.5 rounded-xl font-bold transition-colors duration-200 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
           >
-            {isSignUp ? 'Create Account' : 'Sign In'}
+            {authLoading
+              ? (isSignUp ? 'Creating Account…' : 'Signing In…')
+              : (isSignUp ? 'Create Account' : 'Sign In')}
           </button>
           
           <button 
             type="button" 
-            onClick={() => setIsSignUp(!isSignUp)}
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setAuthMessage(null);
+              setPassword('');
+              setRegistrationCode('');
+            }}
             className="w-full mt-5 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors hover:underline"
           >
             {isSignUp ? 'Already have an account? Sign in' : 'Need an account? Register now'}
