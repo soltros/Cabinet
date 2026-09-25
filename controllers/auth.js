@@ -28,9 +28,19 @@ export const register = async (req, res) => {
   const { username, password, registrationCode } = req.body;
 
   if (!ALLOW_REGISTRATION && !REGISTRATION_CODE) {
+    logger.debug('Registration rejected: disabled', {
+      requestId: req.requestId || null,
+      ip: req.ip,
+      username: typeof username === 'string' ? username : null
+    });
     return res.status(403).json({ error: 'Registration is disabled' });
   }
   if (REGISTRATION_CODE && registrationCode !== REGISTRATION_CODE) {
+    logger.debug('Registration rejected: invalid code', {
+      requestId: req.requestId || null,
+      ip: req.ip,
+      username: typeof username === 'string' ? username : null
+    });
     return res.status(400).json({ error: 'Invalid sign-up code' });
   }
   if (!usernameRegex.test(username || '')) {
@@ -72,7 +82,22 @@ export const login = async (req, res) => {
 
   const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
   const valid = user ? await bcrypt.compare(password, user.password) : false;
-  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!valid) {
+    logger.debug('Login rejected', {
+      requestId: req.requestId || null,
+      ip: req.ip,
+      username
+    });
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  logger.debug('Login accepted', {
+    requestId: req.requestId || null,
+    ip: req.ip,
+    userId: user.id,
+    username: user.username,
+    role: user.role
+  });
 
   const token = jwt.sign(
     { id: user.id, username: user.username, role: user.role },
