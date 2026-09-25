@@ -184,39 +184,155 @@ function App() {
   });
 
   // Upload Logic
-  const uploadOne = (file) => new Promise((resolve) => {
-    const uploadId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-    setUploads(prev => [...prev, { id: uploadId, name: file.name, progress: 0, status: 'uploading' }]);
+  const uploadOne = async (file) => {
+    const uploadUiId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+    setUploads(prev => [...prev, {
+      id: uploadUiId,
+      name: file.name,
+      progress: 0,
+      status: 'uploading',
+      error: null
+    }]);
 
-    const xhr = new XMLHttpRequest();
-    const formData = new FormData();
-    formData.append('file', file);
-    if (currentFolder) formData.append('parentId', currentFolder);
-
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return;
-      const percent = Math.round((event.loaded / event.total) * 100);
-      setUploads(prev => prev.map(u => u.id === uploadId ? { ...u, progress: percent } : u));
-    };
-
-    const finish = (status) => {
-      setUploads(prev => prev.map(u =>
-        u.id === uploadId
-          ? { ...u, status, progress: status === 'completed' ? 100 : u.progress }
-          : u
+    const updateUpload = (patch) => {
+      setUploads(prev => prev.map(upload =>
+        upload.id === uploadUiId ? { ...upload, ...patch } : upload
       ));
-      setTimeout(() => {
-        setUploads(prev => prev.filter(u => u.id !== uploadId));
-      }, status === 'completed' ? 3000 : 6000);
-      resolve(status === 'completed');
     };
 
-    xhr.onload = () => finish(xhr.status >= 200 && xhr.status < 300 ? 'completed' : 'error');
-    xhr.onerror = () => finish('error');
-    xhr.open('POST', '/api/files');
-    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.send(formData);
-  });
+    const readError = async (response, fallback) => {
+      try {
+        const data = await response.json();
+        return data.error || fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    let sessionId = null;
+
+    try {
+      const initResponse = await fetch('/api/files/uploads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size,
+          parentId: currentFolder
+        })
+      });
+
+      if (!initResponse.ok) {
+        throw new Error(await readError(initResponse, `Upload initialization failed (${initResponse.status})`));
+      }
+
+      const session = await initResponse.json();
+      sessionId = session.uploadId;
+      const chunkSize = session.chunkSize;
+      let chunkIndex = session.nextChunk || 0;
+      let uploadedBytes = session.receivedBytes || 0;
+
+      while (uploadedBytes < file.size) {
+        const startByte = chunkIndex * chunkSize;
+        const endByte = Math.min(startByte + chunkSize, file.size);
+        const chunk = file.slice(startByte, endByte);
+
+        let lastError = null;
+        let uploaded = false;
+
+        for (let attempt = 1; attempt <= 3 && !uploaded; attempt += 1) {
+          try {
+            const chunkResponse = await fetch(
+              `/api/files/uploads/${sessionId}/chunks/${chunkIndex}`,
+              {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/octet-stream',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: chunk
+              }
+            );
+
+            if (!chunkResponse.ok) {
+              if (chunkResponse.status === 409) {
+                const state = await chunkResponse.json();
+                chunkIndex = state.nextChunk;
+                uploadedBytes = state.receivedBytes;
+                uploaded = true;
+                break;
+              }
+              throw new Error(await readError(
+                chunkResponse,
+                `Chunk ${chunkIndex + 1} failed (${chunkResponse.status})`
+              ));
+            }
+
+            const state = await chunkResponse.json();
+            chunkIndex = state.nextChunk;
+            uploadedBytes = state.receivedBytes;
+            uploaded = true;
+          } catch (error) {
+            lastError = error;
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 750 * attempt));
+            }
+          }
+        }
+
+        if (!uploaded) {
+          throw lastError || new Error(`Chunk ${chunkIndex + 1} failed after 3 attempts`);
+        }
+
+        const progress = Math.min(98, Math.round((uploadedBytes / file.size) * 98));
+        updateUpload({ progress, status: 'uploading', error: null });
+      }
+
+      updateUpload({ progress: 99, status: 'finalizing', error: null });
+
+      const completeResponse = await fetch(
+        `/api/files/uploads/${sessionId}/complete`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }
+      );
+
+      if (!completeResponse.ok) {
+        throw new Error(await readError(
+          completeResponse,
+          `Upload finalization failed (${completeResponse.status})`
+        ));
+      }
+
+      updateUpload({ progress: 100, status: 'completed', error: null });
+      setTimeout(() => {
+        setUploads(prev => prev.filter(upload => upload.id !== uploadUiId));
+      }, 3000);
+      return true;
+    } catch (error) {
+      console.error('Upload failed:', error);
+      const message = error?.message || 'Upload failed';
+      updateUpload({ status: 'error', error: message });
+      showToast(`Upload failed: ${message}`, 'error');
+
+      if (sessionId) {
+        fetch(`/api/files/uploads/${sessionId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => {});
+      }
+
+      setTimeout(() => {
+        setUploads(prev => prev.filter(upload => upload.id !== uploadUiId));
+      }, 12000);
+      return false;
+    }
+  };
 
   const uploadFiles = async (filesToUpload) => {
     const queue = Array.from(filesToUpload);
