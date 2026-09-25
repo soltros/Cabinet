@@ -1,11 +1,12 @@
 import winston from 'winston';
 import path from 'path';
 import { STORAGE_ROOT } from './storage.js';
+import { LOG_LEVEL } from './config.js';
 
 const LOG_FILE = path.join(STORAGE_ROOT, 'cabinet.log');
 
 const logger = winston.createLogger({
-  level: 'info',
+  level: LOG_LEVEL,
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.json()
