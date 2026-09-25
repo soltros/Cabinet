@@ -6,7 +6,7 @@ services:
     ports:
       - "4444:4444"
     volumes:
-      - ${CABINET_DATA_DIR:-./user_data}:/app/users
+      - "${CABINET_DATA_DIR:-./user_data}:/app/users"
     environment:
       PORT: "4444"
       NODE_ENV: production
