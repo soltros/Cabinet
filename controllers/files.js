@@ -9,7 +9,13 @@ import { pdf } from 'pdf-to-img';
 import { db } from '../db.js';
 import { STORAGE_ROOT } from '../storage.js';
 import { createDecryptionStream, encryptFile } from '../crypto.js';
-import { ENCRYPTION_KEY, PREVIEW_MAX_SIZE, THUMBNAIL_CONCURRENCY } from '../config.js';
+import {
+  ENCRYPTION_KEY,
+  MAX_UPLOAD_SIZE,
+  PREVIEW_MAX_SIZE,
+  THUMBNAIL_CONCURRENCY,
+  UPLOAD_CHUNK_SIZE
+} from '../config.js';
 import logger from '../logger.js';
 
 let activeThumbnailJobs = 0;
@@ -143,6 +149,274 @@ const getReadableFile = async (userId, fileId) => db.get(
      )`,
   [fileId, userId, userId]
 );
+
+const uploadSessionRoot = (userId) => path.join(STORAGE_ROOT, userId, 'uploads');
+const uploadSessionDir = (userId, uploadId) => path.join(uploadSessionRoot(userId), uploadId);
+const uploadMetaPath = (userId, uploadId) => path.join(uploadSessionDir(userId, uploadId), 'meta.json');
+const uploadDataPath = (userId, uploadId) => path.join(uploadSessionDir(userId, uploadId), 'data.part');
+
+const readUploadMeta = async (userId, uploadId) => {
+  const metaPath = uploadMetaPath(userId, uploadId);
+  const raw = await fs.readFile(metaPath, 'utf8');
+  const meta = JSON.parse(raw);
+  if (meta.userId !== userId || meta.uploadId !== uploadId) {
+    throw new Error('Upload session ownership mismatch');
+  }
+  return meta;
+};
+
+const writeUploadMeta = async (meta) => {
+  await fs.writeFile(
+    uploadMetaPath(meta.userId, meta.uploadId),
+    JSON.stringify(meta, null, 2),
+    'utf8'
+  );
+};
+
+const finalizeUploadedPath = async ({
+  userId,
+  originalName,
+  mimeType,
+  parentId,
+  sourcePath,
+  size,
+  fileId = uuidv4()
+}) => {
+  if (!(await validateParent(userId, parentId))) {
+    throw Object.assign(new Error('Invalid destination folder'), { statusCode: 400 });
+  }
+
+  if (!(await reserveQuota(userId, size))) {
+    throw Object.assign(new Error('Storage quota exceeded'), { statusCode: 413 });
+  }
+
+  const paths = await initUserStorage(userId);
+  const destinationPath = path.join(paths.data, fileId);
+  const encryptedPath = `${destinationPath}.enc`;
+  let thumbnailUrl = null;
+
+  try {
+    const fileHash = await calculateHash(sourcePath);
+
+    const fakeReq = {
+      user: { id: userId },
+      file: {
+        path: sourcePath,
+        size,
+        originalname: originalName,
+        mimetype: mimeType || 'application/octet-stream'
+      }
+    };
+    thumbnailUrl = await generateThumbnail(fakeReq, fileId);
+
+    await encryptFile(sourcePath, encryptedPath, ENCRYPTION_KEY);
+    await fs.rename(encryptedPath, destinationPath);
+
+    const now = new Date().toISOString();
+    await db.run(
+      `INSERT INTO files
+       (id, ownerId, name, extension, mimeType, size, hash, path, parentId, thumbnail, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        fileId,
+        userId,
+        originalName,
+        path.extname(originalName).substring(1),
+        mimeType || 'application/octet-stream',
+        size,
+        fileHash,
+        destinationPath,
+        parentId,
+        thumbnailUrl,
+        now,
+        now
+      ]
+    );
+
+    return {
+      id: fileId,
+      name: originalName,
+      size,
+      mimeType: mimeType || 'application/octet-stream',
+      parentId,
+      thumbnail: thumbnailUrl,
+      createdAt: now,
+      updatedAt: now
+    };
+  } catch (error) {
+    await Promise.allSettled([
+      fs.rm(encryptedPath, { force: true }),
+      fs.rm(destinationPath, { force: true }),
+      thumbnailUrl
+        ? fs.rm(path.join(STORAGE_ROOT, userId, 'thumbnails', `${fileId}.webp`), { force: true })
+        : Promise.resolve()
+    ]);
+    await releaseQuota(userId, size);
+    throw error;
+  }
+};
+
+export const initChunkedUpload = async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const mimeType = String(req.body.mimeType || 'application/octet-stream');
+  const size = Number(req.body.size);
+  const parentId = ['null', '', undefined, null].includes(req.body.parentId) ? null : req.body.parentId;
+
+  if (!name) return res.status(400).json({ error: 'File name required' });
+  if (!Number.isSafeInteger(size) || size <= 0) {
+    return res.status(400).json({ error: 'File size must be a positive integer' });
+  }
+  if (size > MAX_UPLOAD_SIZE) {
+    return res.status(413).json({ error: 'File exceeds maximum upload size' });
+  }
+  if (!(await validateParent(req.user.id, parentId))) {
+    return res.status(400).json({ error: 'Invalid destination folder' });
+  }
+
+  const user = await db.get('SELECT quota, usedSpace FROM users WHERE id = ?', [req.user.id]);
+  if (!user || user.usedSpace + size > user.quota) {
+    return res.status(413).json({ error: 'Storage quota exceeded' });
+  }
+
+  const uploadId = uuidv4();
+  const dir = uploadSessionDir(req.user.id, uploadId);
+  await fs.mkdir(dir, { recursive: true });
+
+  const meta = {
+    uploadId,
+    userId: req.user.id,
+    name,
+    mimeType,
+    size,
+    parentId,
+    chunkSize: UPLOAD_CHUNK_SIZE,
+    nextChunk: 0,
+    receivedBytes: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  await writeUploadMeta(meta);
+  await fs.writeFile(uploadDataPath(req.user.id, uploadId), Buffer.alloc(0));
+
+  logger.info('Chunked upload initialized', {
+    uploadId,
+    userId: req.user.id,
+    name,
+    size,
+    chunkSize: UPLOAD_CHUNK_SIZE
+  });
+
+  res.status(201).json({
+    uploadId,
+    chunkSize: UPLOAD_CHUNK_SIZE,
+    nextChunk: 0,
+    receivedBytes: 0
+  });
+};
+
+export const uploadChunk = async (req, res) => {
+  const uploadId = req.params.uploadId;
+  const chunkIndex = Number(req.params.chunkIndex);
+  const meta = await readUploadMeta(req.user.id, uploadId);
+
+  if (!Number.isSafeInteger(chunkIndex) || chunkIndex < 0) {
+    return res.status(400).json({ error: 'Invalid chunk index' });
+  }
+  if (chunkIndex !== meta.nextChunk) {
+    return res.status(409).json({
+      error: 'Unexpected chunk index',
+      nextChunk: meta.nextChunk,
+      receivedBytes: meta.receivedBytes
+    });
+  }
+
+  const chunk = req.body;
+  if (!Buffer.isBuffer(chunk) || chunk.length === 0) {
+    return res.status(400).json({ error: 'Chunk body required' });
+  }
+  if (chunk.length > meta.chunkSize) {
+    return res.status(413).json({ error: 'Chunk exceeds configured chunk size' });
+  }
+  if (meta.receivedBytes + chunk.length > meta.size) {
+    return res.status(400).json({ error: 'Chunk exceeds declared file size' });
+  }
+
+  await fs.appendFile(uploadDataPath(req.user.id, uploadId), chunk);
+  meta.nextChunk += 1;
+  meta.receivedBytes += chunk.length;
+  meta.updatedAt = new Date().toISOString();
+  await writeUploadMeta(meta);
+
+  res.json({
+    status: 'success',
+    nextChunk: meta.nextChunk,
+    receivedBytes: meta.receivedBytes
+  });
+};
+
+export const completeChunkedUpload = async (req, res) => {
+  const uploadId = req.params.uploadId;
+  const meta = await readUploadMeta(req.user.id, uploadId);
+
+  if (meta.receivedBytes !== meta.size) {
+    return res.status(409).json({
+      error: 'Upload is incomplete',
+      expectedBytes: meta.size,
+      receivedBytes: meta.receivedBytes,
+      nextChunk: meta.nextChunk
+    });
+  }
+
+  const sourcePath = uploadDataPath(req.user.id, uploadId);
+  const file = await finalizeUploadedPath({
+    userId: req.user.id,
+    originalName: meta.name,
+    mimeType: meta.mimeType,
+    parentId: meta.parentId,
+    sourcePath,
+    size: meta.size
+  });
+
+  await fs.rm(uploadSessionDir(req.user.id, uploadId), { recursive: true, force: true });
+
+  logger.info('Chunked upload completed', {
+    uploadId,
+    userId: req.user.id,
+    fileId: file.id,
+    name: file.name,
+    size: file.size
+  });
+
+  res.status(201).json({ status: 'success', file });
+};
+
+export const getChunkedUploadStatus = async (req, res) => {
+  try {
+    const meta = await readUploadMeta(req.user.id, req.params.uploadId);
+    res.json({
+      uploadId: meta.uploadId,
+      chunkSize: meta.chunkSize,
+      nextChunk: meta.nextChunk,
+      receivedBytes: meta.receivedBytes,
+      size: meta.size
+    });
+  } catch (error) {
+    if (error?.code === 'ENOENT') return res.status(404).json({ error: 'Upload session not found' });
+    throw error;
+  }
+};
+
+export const abortChunkedUpload = async (req, res) => {
+  await fs.rm(uploadSessionDir(req.user.id, req.params.uploadId), {
+    recursive: true,
+    force: true
+  });
+  logger.info('Chunked upload aborted', {
+    uploadId: req.params.uploadId,
+    userId: req.user.id
+  });
+  res.json({ status: 'success' });
+};
 
 export const uploadFile = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
