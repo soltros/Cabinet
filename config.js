@@ -43,6 +43,7 @@ export const TRUST_PROXY = parseBoolean(process.env.TRUST_PROXY, false);
 export const COOKIE_SECURE = parseBoolean(process.env.COOKIE_SECURE, NODE_ENV === 'production');
 export const MAX_UPLOAD_SIZE = parsePositiveInteger('MAX_UPLOAD_SIZE', 50 * 1024 * 1024 * 1024);
 export const UPLOAD_REQUEST_TIMEOUT_MS = parseNonNegativeInteger('UPLOAD_REQUEST_TIMEOUT_MS', 0);
+export const UPLOAD_CHUNK_SIZE = parsePositiveInteger('UPLOAD_CHUNK_SIZE', 8 * 1024 * 1024);
 export const DEFAULT_USER_QUOTA = parsePositiveInteger('DEFAULT_USER_QUOTA', 50 * 1024 * 1024 * 1024);
 export const PREVIEW_MAX_SIZE = parsePositiveInteger('PREVIEW_MAX_SIZE', 100 * 1024 * 1024);
 export const THUMBNAIL_CONCURRENCY = parsePositiveInteger('THUMBNAIL_CONCURRENCY', 2);
