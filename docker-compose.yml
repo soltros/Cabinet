@@ -11,7 +11,8 @@ services:
       PORT: "4444"
       NODE_ENV: production
       STORAGE_PATH: /app/users
-      MAX_UPLOAD_SIZE: "524288000"
+      MAX_UPLOAD_SIZE: "${MAX_UPLOAD_SIZE:-53687091200}"
+      UPLOAD_REQUEST_TIMEOUT_MS: "${UPLOAD_REQUEST_TIMEOUT_MS:-0}"
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to at least 32 characters}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY to at least 32 characters}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD to at least 12 characters}
