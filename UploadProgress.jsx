@@ -14,10 +14,25 @@ const UploadProgress = ({ uploads }) => {
           <div key={upload.id} className="text-sm">
             <div className="flex justify-between mb-1">
               <span className="truncate w-48 text-gray-700">{upload.name}</span>
-              <span className={`text-xs ${upload.status === 'error' ? 'text-red-500' : 'text-blue-600'}`}>
-                {upload.status === 'error' ? 'Failed' : `${upload.progress}%`}
+              <span className={`text-xs ${
+                upload.status === 'error'
+                  ? 'text-red-500'
+                  : upload.status === 'completed'
+                    ? 'text-green-600'
+                    : 'text-blue-600'
+              }`}>
+                {upload.status === 'error'
+                  ? 'Failed'
+                  : upload.status === 'finalizing'
+                    ? 'Finalizing…'
+                    : upload.status === 'completed'
+                      ? 'Complete'
+                      : `${upload.progress}%`}
               </span>
             </div>
+            {upload.error && (
+              <div className="text-xs text-red-500 mb-1 break-words">{upload.error}</div>
+            )}
             <div className="w-full bg-gray-100 rounded-full h-1.5">
               <div 
                 className={`h-1.5 rounded-full transition-all duration-300 ${
