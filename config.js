@@ -21,6 +21,16 @@ const parsePositiveInteger = (name, fallback) => {
   return value;
 };
 
+const parseNonNegativeInteger = (name, fallback) => {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
+};
+
 export const NODE_ENV = process.env.NODE_ENV || 'development';
 export const PORT = parsePositiveInteger('PORT', 4444);
 export const JWT_SECRET = required('JWT_SECRET');
@@ -31,7 +41,8 @@ export const REGISTRATION_CODE = process.env.REGISTRATION_CODE || null;
 export const ALLOW_REGISTRATION = parseBoolean(process.env.ALLOW_REGISTRATION, false);
 export const TRUST_PROXY = parseBoolean(process.env.TRUST_PROXY, false);
 export const COOKIE_SECURE = parseBoolean(process.env.COOKIE_SECURE, NODE_ENV === 'production');
-export const MAX_UPLOAD_SIZE = parsePositiveInteger('MAX_UPLOAD_SIZE', 500 * 1024 * 1024);
+export const MAX_UPLOAD_SIZE = parsePositiveInteger('MAX_UPLOAD_SIZE', 50 * 1024 * 1024 * 1024);
+export const UPLOAD_REQUEST_TIMEOUT_MS = parseNonNegativeInteger('UPLOAD_REQUEST_TIMEOUT_MS', 0);
 export const DEFAULT_USER_QUOTA = parsePositiveInteger('DEFAULT_USER_QUOTA', 50 * 1024 * 1024 * 1024);
 export const PREVIEW_MAX_SIZE = parsePositiveInteger('PREVIEW_MAX_SIZE', 100 * 1024 * 1024);
 export const THUMBNAIL_CONCURRENCY = parsePositiveInteger('THUMBNAIL_CONCURRENCY', 2);
