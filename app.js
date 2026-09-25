@@ -3,12 +3,22 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yamljs';
 import { fileURLToPath } from 'url';
 
 import logger from './logger.js';
-import { PORT, TRUST_PROXY, UPLOAD_REQUEST_TIMEOUT_MS } from './config.js';
+import {
+  PORT,
+  TRUST_PROXY,
+  UPLOAD_REQUEST_TIMEOUT_MS,
+  UPLOAD_CHUNK_SIZE,
+  MAX_UPLOAD_SIZE,
+  LOG_LEVEL,
+  NODE_ENV,
+  COOKIE_SECURE
+} from './config.js';
 import authRouter from './routes/auth.js';
 import filesRouter from './routes/files.js';
 import foldersRouter from './routes/folders.js';
@@ -44,6 +54,38 @@ app.use(helmet({
 }));
 
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
+app.use((req, res, next) => {
+  const requestId = req.headers['x-request-id'] || crypto.randomUUID();
+  const startedAt = process.hrtime.bigint();
+  req.requestId = requestId;
+  res.setHeader('X-Request-ID', requestId);
+
+  logger.debug('Request started', {
+    requestId,
+    method: req.method,
+    url: req.originalUrl,
+    ip: req.ip,
+    forwardedFor: req.headers['x-forwarded-for'] || null,
+    forwardedProto: req.headers['x-forwarded-proto'] || null,
+    contentLength: req.headers['content-length'] || null,
+    contentType: req.headers['content-type'] || null,
+    userAgent: req.headers['user-agent'] || null
+  });
+
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    logger.debug('Request completed', {
+      requestId,
+      method: req.method,
+      url: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Number(durationMs.toFixed(2)),
+      contentLength: res.getHeader('content-length') || null
+    });
+  });
+
+  next();
+});
 app.use((req, res, next) => {
   req.on('aborted', () => {
     logger.warn('Request aborted before completion', {
@@ -102,6 +144,17 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(PORT, () => {
   logger.info(`Cabinet Server is running on http://localhost:${PORT}`);
+  logger.info('Cabinet startup configuration', {
+    nodeEnv: NODE_ENV,
+    port: PORT,
+    trustProxy: TRUST_PROXY,
+    cookieSecure: COOKIE_SECURE,
+    logLevel: LOG_LEVEL,
+    maxUploadSize: MAX_UPLOAD_SIZE,
+    uploadChunkSize: UPLOAD_CHUNK_SIZE,
+    uploadRequestTimeoutMs: UPLOAD_REQUEST_TIMEOUT_MS,
+    storagePath: process.env.STORAGE_PATH || null
+  });
 });
 
 server.requestTimeout = UPLOAD_REQUEST_TIMEOUT_MS;
