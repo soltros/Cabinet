@@ -732,23 +732,57 @@ export const getFileContent = async (req, res) => {
   res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader('Content-Type', isDownload ? 'application/octet-stream' : (file.mimeType || 'application/octet-stream'));
 
+  const pipeDecrypted = async (options = {}) => {
+    const stream = await createDecryptionStream(file.path, ENCRYPTION_KEY, options);
+    let closedByClient = false;
+
+    const cleanup = () => {
+      if (!stream.destroyed) {
+        closedByClient = true;
+        stream.destroy();
+      }
+    };
+
+    req.once('aborted', cleanup);
+    res.once('close', cleanup);
+
+    stream.on('error', (error) => {
+      if (closedByClient || req.aborted || res.destroyed) {
+        logger.debug('File stream closed after client disconnect', {
+          requestId: req.requestId || null,
+          fileId: file.id,
+          error: error.message
+        });
+        return;
+      }
+
+      logger.error('File stream failed', {
+        requestId: req.requestId || null,
+        fileId: file.id,
+        error: error.message
+      });
+      if (!res.headersSent) res.sendStatus(500);
+      else res.destroy(error);
+    });
+
+    stream.on('close', () => {
+      req.off('aborted', cleanup);
+      res.off('close', cleanup);
+    });
+
+    stream.pipe(res);
+  };
+
   if (range && (file.mimeType?.startsWith('video/') || file.mimeType?.startsWith('audio/'))) {
     const length = range.end - range.start + 1;
     res.status(206);
     res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${file.size}`);
     res.setHeader('Content-Length', length);
-    const stream = await createDecryptionStream(file.path, ENCRYPTION_KEY, range);
-    return stream.pipe(res);
+    return pipeDecrypted(range);
   }
 
   res.setHeader('Content-Length', file.size);
-  const stream = await createDecryptionStream(file.path, ENCRYPTION_KEY);
-  stream.on('error', (error) => {
-    logger.error('File stream failed', { fileId: file.id, error: error.message });
-    if (!res.headersSent) res.sendStatus(500);
-    else res.destroy(error);
-  });
-  stream.pipe(res);
+  return pipeDecrypted();
 };
 
 export const getThumbnail = async (req, res) => {
