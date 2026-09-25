@@ -8,7 +8,7 @@ import YAML from 'yamljs';
 import { fileURLToPath } from 'url';
 
 import logger from './logger.js';
-import { PORT, TRUST_PROXY } from './config.js';
+import { PORT, TRUST_PROXY, UPLOAD_REQUEST_TIMEOUT_MS } from './config.js';
 import authRouter from './routes/auth.js';
 import filesRouter from './routes/files.js';
 import foldersRouter from './routes/folders.js';
@@ -80,6 +80,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`Cabinet Server is running on http://localhost:${PORT}`);
+});
+
+server.requestTimeout = UPLOAD_REQUEST_TIMEOUT_MS;
+server.on('clientError', (error, socket) => {
+  logger.warn('HTTP client connection error', { error: error.message });
+  if (!socket.destroyed) socket.destroy();
 });
