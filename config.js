@@ -32,6 +32,11 @@ const parseNonNegativeInteger = (name, fallback) => {
 };
 
 export const NODE_ENV = process.env.NODE_ENV || 'development';
+const validLogLevels = new Set(['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly']);
+export const LOG_LEVEL = String(process.env.LOG_LEVEL || 'info').toLowerCase();
+if (!validLogLevels.has(LOG_LEVEL)) {
+  throw new Error('LOG_LEVEL must be one of: error, warn, info, http, verbose, debug, silly');
+}
 export const PORT = parsePositiveInteger('PORT', 4444);
 export const JWT_SECRET = required('JWT_SECRET');
 export const ENCRYPTION_KEY = required('ENCRYPTION_KEY');
