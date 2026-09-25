@@ -56,7 +56,10 @@ Other supported settings are:
 * `ALLOW_REGISTRATION`: Defaults to `false`. Set to `true` only if you intentionally want users to be able to register.
 * `REGISTRATION_CODE`: Optional registration/invite code. When set, new registrations must provide the matching code.
 * `STORAGE_PATH`: Storage path inside the container. The supplied Compose file uses `/app/users`; normally you should leave this unchanged.
-* `MAX_UPLOAD_SIZE`: Maximum upload size in bytes. The supplied Compose file defaults to 500 MiB.
+* `CABINET_DATA_DIR`: Host directory mounted at `/app/users`. Defaults to `./user_data`. Use a stable absolute path for production if the Compose directory may move.
+* `MAX_UPLOAD_SIZE`: Maximum completed file size in bytes. The supplied Compose file defaults to 50 GiB.
+* `UPLOAD_CHUNK_SIZE`: Browser upload chunk size in bytes. Defaults to 8 MiB so large uploads work through proxies with relatively small request-body limits.
+* `UPLOAD_REQUEST_TIMEOUT_MS`: Node request timeout in milliseconds. Defaults to `0` (disabled) so slow/large uploads are not killed by the application server.
 * `TRUST_PROXY`: Defaults to `false`. Set to `true` when Cabinet is behind a trusted reverse proxy such as Traefik, Caddy, or Nginx and you want Cabinet to trust the forwarded client IP.
 * `COOKIE_SECURE`: Defaults to `true` for production. Keep this enabled when Cabinet is accessed over HTTPS. Set it to `false` only for an intentional plain-HTTP local/LAN deployment.
 
@@ -89,6 +92,11 @@ ALLOW_REGISTRATION=false
 REGISTRATION_CODE=
 TRUST_PROXY=false
 COOKIE_SECURE=true
+
+CABINET_DATA_DIR=./user_data
+MAX_UPLOAD_SIZE=53687091200
+UPLOAD_REQUEST_TIMEOUT_MS=0
+UPLOAD_CHUNK_SIZE=8388608
 ```
 
 Do not commit your real `.env` file to Git. Cabinet's `.gitignore` excludes it by default.
@@ -117,16 +125,68 @@ After Cabinet is running, open:
 
 For an internet-facing deployment, put Cabinet behind HTTPS before signing in and keep `COOKIE_SECURE=true`.
 
+#### Persistent data and safe updates
+
+Cabinet stores its SQLite database, encrypted files, thumbnails, logs, and in-progress chunked uploads under `/app/users` inside the container. Docker Compose bind-mounts that path from `CABINET_DATA_DIR` on the host.
+
+The default is:
+
+```dotenv
+CABINET_DATA_DIR=./user_data
+```
+
+For a long-lived server, an absolute host path is safer because it does not depend on which directory you launch Compose from:
+
+```dotenv
+CABINET_DATA_DIR=/srv/cabinet/user_data
+```
+
+A normal image update may recreate the container without recreating Cabinet itself:
+
+```bash
+docker compose down
+docker compose pull
+docker compose up -d
+```
+
+That sequence does **not** delete the host data directory. Cabinet will reopen the same `database.sqlite`, users, files, and folders after the new container starts.
+
+To preserve an existing installation:
+
+* Keep the same `CABINET_DATA_DIR`.
+* Keep the same `ENCRYPTION_KEY`; existing encrypted files require it.
+* Keep the existing `.env` file.
+* Do not delete or replace the host data directory when updating.
+
+If you use the relative default `./user_data`, run Compose from the same project directory each time or switch `CABINET_DATA_DIR` to an absolute path.
+
+#### Large browser uploads
+
+Browser uploads use a chunked upload API instead of sending one enormous multipart request. The default chunk size is 8 MiB, so a 1 GiB file is transferred as many small requests and then finalized server-side. This makes uploads much more tolerant of reverse proxies, tunnels, and CDNs that enforce per-request body limits.
+
+Relevant settings:
+
+```dotenv
+MAX_UPLOAD_SIZE=53687091200
+UPLOAD_CHUNK_SIZE=8388608
+UPLOAD_REQUEST_TIMEOUT_MS=0
+```
+
+The defaults allow files up to 50 GiB, send browser uploads in 8 MiB chunks, and disable Cabinet's own Node request timeout. Your reverse proxy may still have its own request-body or timeout settings, but each chunk only needs to fit through that limit.
+
+Cabinet logs chunked-upload initialization/completion and aborted/failed HTTP requests. The web UI also displays the actual upload failure instead of silently leaving a stalled progress item.
+
 #### Updating Cabinet later
 
 The Compose file uses `ghcr.io/soltros/cabinet:latest` and `pull_policy: always`. To update to the newest published image:
 
 ```bash
+docker compose down
 docker compose pull
 docker compose up -d
 ```
 
-Keep your existing `.env` file and `user_data` directory when updating. In particular, keep the same `ENCRYPTION_KEY`.
+Keep the same `.env`, `CABINET_DATA_DIR`, and `ENCRYPTION_KEY` when updating.
 
 ### Quick Start
 
@@ -160,7 +220,7 @@ docker compose pull
 docker compose up -d
 ```
 
-`docker-compose.yml` uses `ghcr.io/soltros/cabinet:latest` with `pull_policy: always`. Local source builds remain available for development and CI with `docker build`.
+`docker-compose.yml` uses `ghcr.io/soltros/cabinet:latest` with `pull_policy: always` and bind-mounts `${CABINET_DATA_DIR:-./user_data}` at `/app/users`. Local source builds remain available for development and CI with `docker build`.
 
 ### Reverse Proxy & SSL
 
