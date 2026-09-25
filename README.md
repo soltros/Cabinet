@@ -176,6 +176,74 @@ The defaults allow files up to 50 GiB, send browser uploads in 8 MiB chunks, and
 
 Cabinet logs chunked-upload initialization/completion and aborted/failed HTTP requests. The web UI also displays the actual upload failure instead of silently leaving a stalled progress item.
 
+#### Diagnostic logging
+
+Cabinet supports configurable logging through `LOG_LEVEL`.
+
+Normal operation:
+
+```dotenv
+LOG_LEVEL=info
+```
+
+For active troubleshooting:
+
+```dotenv
+LOG_LEVEL=debug
+```
+
+Then recreate the container:
+
+```bash
+docker compose down
+docker compose pull
+docker compose up -d
+docker compose logs -f cabinet
+```
+
+At `debug` level Cabinet records additional diagnostic context including:
+
+* request IDs, request start/completion, HTTP status, and request duration
+* client IP plus forwarded IP/protocol information when present
+* request content type and content length
+* authentication acceptance/rejection reasons without logging tokens or passwords
+* quota reservation and release decisions
+* chunked-upload initialization, expected chunk count, every received chunk, byte counts, percentage, and per-chunk write timing
+* upload status/finalization requests
+* hash, thumbnail, encryption, and finalization timings
+* aborted connections and HTTP client connection errors
+* startup configuration such as upload limits, chunk size, timeout, proxy mode, cookie mode, storage path, and active log level
+
+Cabinet deliberately does **not** log JWT values, cookies, passwords, registration codes, or the encryption key.
+
+Every response also receives an `X-Request-ID` header. When investigating one failed browser request, that ID can be matched against the server log entries for the same request.
+
+The structured log file is stored at:
+
+```text
+/app/users/cabinet.log
+```
+
+which means it is persisted inside `CABINET_DATA_DIR` alongside the database and user storage.
+
+Useful commands:
+
+```bash
+# Follow container output
+docker compose logs -f cabinet
+
+# Last 300 lines
+docker compose logs --tail=300 cabinet
+
+# Search persisted structured logs for uploads/errors
+grep -Ei 'upload|aborted|failed|error|quota' "${CABINET_DATA_DIR:-./user_data}/cabinet.log"
+
+# Follow the persisted log directly
+tail -f "${CABINET_DATA_DIR:-./user_data}/cabinet.log"
+```
+
+For routine operation, switch back to `LOG_LEVEL=info` once troubleshooting is finished so per-chunk/request debug messages do not generate unnecessary log volume.
+
 #### Updating Cabinet later
 
 The Compose file uses `ghcr.io/soltros/cabinet:latest` and `pull_policy: always`. To update to the newest published image:
