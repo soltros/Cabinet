@@ -115,3 +115,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+concurrency:
+  group: cabinet-image-${{ github.ref }}
+  cancel-in-progress: true
+
