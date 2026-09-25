@@ -4,10 +4,21 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticateToken, asyncHandler } from '../middlewares/auth.js';
 import {
-  uploadFile, getFiles, patchFile, deleteFile, getFileContent, getThumbnail, shareFileWithUser
+  uploadFile,
+  initChunkedUpload,
+  uploadChunk,
+  completeChunkedUpload,
+  getChunkedUploadStatus,
+  abortChunkedUpload,
+  getFiles,
+  patchFile,
+  deleteFile,
+  getFileContent,
+  getThumbnail,
+  shareFileWithUser
 } from '../controllers/files.js';
 import { STORAGE_ROOT, initUserStorage } from '../storage.js';
-import { MAX_UPLOAD_SIZE } from '../config.js';
+import { MAX_UPLOAD_SIZE, UPLOAD_CHUNK_SIZE } from '../config.js';
 
 const router = express.Router();
 
@@ -31,6 +42,16 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD_SIZE, files: 1 }
 });
 
+router.post('/uploads', authenticateToken, express.json({ limit: '64kb' }), asyncHandler(initChunkedUpload));
+router.get('/uploads/:uploadId', authenticateToken, asyncHandler(getChunkedUploadStatus));
+router.put(
+  '/uploads/:uploadId/chunks/:chunkIndex',
+  authenticateToken,
+  express.raw({ type: 'application/octet-stream', limit: UPLOAD_CHUNK_SIZE + 1024 }),
+  asyncHandler(uploadChunk)
+);
+router.post('/uploads/:uploadId/complete', authenticateToken, asyncHandler(completeChunkedUpload));
+router.delete('/uploads/:uploadId', authenticateToken, asyncHandler(abortChunkedUpload));
 router.post('/', authenticateToken, upload.single('file'), asyncHandler(uploadFile));
 router.get('/', authenticateToken, asyncHandler(getFiles));
 router.post('/:id/share', authenticateToken, asyncHandler(shareFileWithUser));
