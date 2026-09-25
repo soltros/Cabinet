@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import { pdf } from 'pdf-to-img';
@@ -151,7 +151,12 @@ const getReadableFile = async (userId, fileId) => db.get(
 );
 
 const uploadSessionRoot = (userId) => path.join(STORAGE_ROOT, userId, 'uploads');
-const uploadSessionDir = (userId, uploadId) => path.join(uploadSessionRoot(userId), uploadId);
+const uploadSessionDir = (userId, uploadId) => {
+  if (!uuidValidate(uploadId)) {
+    throw Object.assign(new Error('Invalid upload session ID'), { statusCode: 400 });
+  }
+  return path.join(uploadSessionRoot(userId), uploadId);
+};
 const uploadMetaPath = (userId, uploadId) => path.join(uploadSessionDir(userId, uploadId), 'meta.json');
 const uploadDataPath = (userId, uploadId) => path.join(uploadSessionDir(userId, uploadId), 'data.part');
 
